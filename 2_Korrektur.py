@@ -164,8 +164,8 @@ class Anzeige(Frame):
         self.geg.insert(END,curr['Given'].replace(' // ','\n'))
         self.req.delete("1.0",END)
         self.req.insert(END,curr['Correct'].replace(' // ','\n'))
-        #self.geg["state"]=DISABLED
-        #self.req["state"]=DISABLED
+        self.geg["state"]=DISABLED
+        self.req["state"]=DISABLED
 
         self.bem.delete("1.0",END)
         self.bem.insert(END,curr['Remarks'].replace(' // ','\n'))

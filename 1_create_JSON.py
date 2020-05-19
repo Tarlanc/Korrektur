@@ -106,7 +106,8 @@ def mark_question(q,a):
                 'Remarks':'',
                 'Points':points,
                 'Max_Points':q['Max'],
-                'Type':q['Type']}
+                'Type':q['Type'],
+                'Title':q['Title']}
 
     elif q['Type']=='MCQ':
         points = q['Max']
@@ -127,7 +128,8 @@ def mark_question(q,a):
                 'Remarks':'',
                 'Points':points,
                 'Max_Points':q['Max'],
-                'Type':q['Type']}
+                'Type':q['Type'],
+                'Title':q['Title']}
 
     elif q['Type'] in ['KPRIM','KPR']:
         points = q['Max']
@@ -148,7 +150,8 @@ def mark_question(q,a):
                 'Remarks':'',
                 'Points':points,
                 'Max_Points':q['Max'],
-                'Type':q['Type']}
+                'Type':q['Type'],
+                'Title':q['Title']}
 
     elif q['Type']=='FIB':
         ac = True ## Only automatically mark if all is correct
@@ -183,7 +186,8 @@ def mark_question(q,a):
                 'Remarks':remarks.replace('\n',' // '),
                 'Points':points,
                 'Max_Points':q['Max'],
-                'Type':q['Type']}
+                'Type':q['Type'],
+                'Title':q['Title']}
 
     else: ## for essay questions
         s1 = []
@@ -197,7 +201,8 @@ def mark_question(q,a):
                 'Remarks':'',
                 'Points':'',
                 'Max_Points':q['Max'],
-                'Type':q['Type']}           
+                'Type':q['Type'],
+                'Title':q['Title']}           
     return mark
 
 
@@ -238,6 +243,7 @@ for i in range(tend+2,len(ls)):
             ans = scan_question(ls,i)
             questions[q[2]]['Ans']=ans['Ans']
             questions[q[2]]['Max']=ans['Max']
+            questions[q[2]]['Title']=line[1]
             for a in ans['Ans'].keys():
                 qkeys[a]=q[2]
             

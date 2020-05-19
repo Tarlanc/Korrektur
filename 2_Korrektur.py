@@ -23,10 +23,12 @@ class Anzeige(Frame):
 
         self.respondents = []
         self.questions = []
+        self.question_titles = []
         for k in daten.keys():
             self.respondents.append(k)
         for q in daten[self.respondents[0]].keys():
             self.questions.append(q)
+            self.question_titles.append(daten[self.respondents[0]][q]['Title'])
 
         self.set_window()
 
@@ -55,14 +57,26 @@ class Anzeige(Frame):
         lc = Label(self,text='Bemerkungen:')
         lc.grid(row=6,column=0,sticky=W)
 
-        self.geg = Text(self,width=60,height=10,wrap=WORD,bg="#eeeeff",relief=SUNKEN)
-        self.geg.grid(row=4,column=0,columnspan=3)
+        self.ysc1 = Scrollbar(self, orient=VERTICAL)
+        self.ysc1.grid(row=4,column=2,sticky=N+S)
+        self.geg = Text(self,width=60,height=10,wrap=WORD,bg="#eeeeff",
+                        relief=SUNKEN,yscrollcommand=self.ysc1.set)
+        self.geg.grid(row=4,column=0,columnspan=2)
+        self.ysc1["command"]=self.geg.yview
 
-        self.req = Text(self,width=60,height=10,wrap=WORD,bg="#eeffee",relief=SUNKEN)
-        self.req.grid(row=4,column=3,columnspan=3)
+        self.ysc2 = Scrollbar(self, orient=VERTICAL)
+        self.ysc2.grid(row=4,column=5,sticky=N+S)
+        self.req = Text(self,width=60,height=10,wrap=WORD,bg="#eeffee",
+                        relief=SUNKEN,yscrollcommand=self.ysc2.set)
+        self.req.grid(row=4,column=3,columnspan=2)
+        self.ysc2["command"]=self.req.yview
 
-        self.bem = Text(self,width=60,height=10,wrap=WORD,bg="#ffffff",relief=SUNKEN)
-        self.bem.grid(row=7,column=0,columnspan=3)
+        self.ysc3 = Scrollbar(self, orient=VERTICAL)
+        self.ysc3.grid(row=7,column=2,sticky=N+S)
+        self.bem = Text(self,width=60,height=10,wrap=WORD,bg="#ffffff",
+                        relief=SUNKEN,yscrollcommand=self.ysc3.set)
+        self.bem.grid(row=7,column=0,columnspan=2)
+        self.ysc3["command"]=self.bem.yview
 
         self.f = Frame(self)
         self.f.grid(row=6,column=3,rowspan=2,columnspan=3)
@@ -133,7 +147,7 @@ class Anzeige(Frame):
         curr = self.resp[r][q]
         #print(curr)
 
-        self.cq['text'] = "  Aktuelle Frage: "+str(q)
+        self.cq['text'] = "  Aktuelle Frage: {0} ({1})".format(q,self.question_titles[settings['Curr_Q']])
 
         self.rid.set("Teilnehmer: '{0}' ({1}/{2})".format(r,settings['Curr_R']+1,len(self.respondents)))
 
@@ -147,14 +161,14 @@ class Anzeige(Frame):
         self.geg["state"]=NORMAL
         self.req["state"]=NORMAL
         self.geg.delete("1.0",END)
-        self.geg.insert(END,curr['Given'])
+        self.geg.insert(END,curr['Given'].replace(' // ','\n'))
         self.req.delete("1.0",END)
-        self.req.insert(END,curr['Correct'])
-        self.geg["state"]=DISABLED
-        self.req["state"]=DISABLED
+        self.req.insert(END,curr['Correct'].replace(' // ','\n'))
+        #self.geg["state"]=DISABLED
+        #self.req["state"]=DISABLED
 
         self.bem.delete("1.0",END)
-        self.bem.insert(END,curr['Remarks'])
+        self.bem.insert(END,curr['Remarks'].replace(' // ','\n'))
 
         if 'State' in curr.keys():
             if curr['State'] == 1:
@@ -263,7 +277,7 @@ class Anzeige(Frame):
         accept = True
         p = self.points.get()       
         cb = self.insec.get()
-        rem = self.bem.get("1.0",END)[:-1]
+        rem = self.bem.get("1.0",END)[:-1].replace('\n',' // ')
         #print([p,cb,rem])
 
         try:
@@ -311,7 +325,7 @@ inf.close()
 
 j = eval(json)
 if type(j)==dict:
-    print("Daten von "+str(len(j.keys()))+" Studierenden erfolgreich geladen.")
+    #print("Daten von "+str(len(j.keys()))+" Studierenden erfolgreich geladen.")
     #print(j[list(j.keys())[0]])
     root = Tk()
     korr = Anzeige(root,j)

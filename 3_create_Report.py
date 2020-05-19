@@ -92,8 +92,8 @@ def create_einsicht(res,r,folder='.\\'): ## Takes one respondent dict
         pdf.add_page()
         pdf.set_font("Arial", size=16)
         pdf.set_fill_color(220,220,255)
-        pdf.multi_cell(0, 12, txt="Aufgabe: "+q+"\nMaximale Punktzahl: "+str(res[r][q]['Max_Points']),
-                       align="C",border=1,fill=True)
+        t = "Aufgabe: {0} ({1})\nMaximale Punktzahl: {2}".format(q,res[r][q]['Title'],res[r][q]['Max_Points'])
+        pdf.multi_cell(0, 12, txt=t, align="C",border=1,fill=True)
 
         pdf.set_fill_color(220,250,220)
 
@@ -102,7 +102,7 @@ def create_einsicht(res,r,folder='.\\'): ## Takes one respondent dict
         pdf.multi_cell(0,6, txt="Korrekte Antwort:")
         pdf.y+=5
         pdf.set_font("Arial", size=12)
-        pdf.multi_cell(0,6,txt=res[r][q]['Correct'],fill=True,align="C",border=1)
+        pdf.multi_cell(0,6,txt=res[r][q]['Correct'].replace(" // ",'\n'),fill=True,align="C",border=1)
 
         pdf.set_fill_color(220,220,220)
 
@@ -111,7 +111,7 @@ def create_einsicht(res,r,folder='.\\'): ## Takes one respondent dict
         pdf.multi_cell(0,6, txt="Ihre Antwort:")
         pdf.y+=5
         pdf.set_font("Arial", size=12)
-        pdf.multi_cell(0,6,txt=res[r][q]['Given'],fill=True,align="C",border=1)
+        pdf.multi_cell(0,6,txt=res[r][q]['Given'].replace(" // ",'\n'),fill=True,align="C",border=1)
 
         if len(res[r][q]['Remarks'])>1:
             pdf.set_font("Arial", size=14,style="B")

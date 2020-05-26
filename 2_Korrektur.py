@@ -296,7 +296,7 @@ class Anzeige(Frame):
             self.resp[r][q]['Remarks']=rem
             self.resp[r][q]['State']=cb
 
-        outf = open(settings['Filename_Out'],'w')
+        outf = open(settings['Filename_Out'],'w',encoding="utf-8",errors="ignore")
         outf.write(str(self.resp))
         outf.close()
 

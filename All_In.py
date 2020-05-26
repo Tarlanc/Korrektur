@@ -151,7 +151,7 @@ class Anzeige(Frame):
                     except:
                         pass ## Goddammit, at least select a valid file.
                 if type(j) == dict:
-                    o = open(settings['J_Filename'],'w')
+                    o = open(settings['J_Filename'],'w',encoding='utf-8',errors='ignore')
                     o.write(str(j))
                     o.close()
                                         
@@ -346,7 +346,7 @@ class Anzeige(Frame):
             self.resp[r][q]['Remarks']=rem
             self.resp[r][q]['State']=cb
 
-        outf = open(settings['J_Filename_Out'],'w')
+        outf = open(settings['J_Filename_Out'],'w',encoding='utf-8',errors='ignore')
         outf.write(str(self.resp))
         outf.close()
 
@@ -725,19 +725,35 @@ def create_einsicht(res,r,folder='.\\',veranstaltung=''): ## Takes one responden
 
         pdf.set_font("Arial", size=14,style="B")
         pdf.y+=20
-        pdf.multi_cell(0,6, txt="Sie haben "+str(res[r][q]['Points'])+" von "+str(res[r][q]['Max_Points'])+" Punkten erhalten.")  
+        pdf.multi_cell(0,6, txt="Sie haben "+str(res[r][q]['Points'])+" von "+str(res[r][q]['Max_Points'])+" Punkten erhalten.")
 
-    pdf.output(fname)
+    try:
+        pdf.output(fname)
+    except:
+        er = open(fname+"_ERROR.txt","w",encoding="utf-8",errors="ignore")
+        er.write("Error. Could not export case:"+r+"\nThere must be a strange special character in this respondent's answers. Please mend manually.\n")
+        er.close()
 
 
 def write_results(result = None, pdf=True, table="Punktetabelle.xls"):
     respondents = sorted(list(result.keys()))
     questions = sorted(list(result[respondents[0]].keys()))
 
-    outf = open(table,'w')
-    outf.write('\t'.join(['Name','Total','Remarks']+questions)+'\n')
+    outf = open(table,'w',encoding='utf-8',errors='ignore')
+    outf.write('\t'.join(['Laufnummer','Name','Total','Remarks']+questions)+'\n')
     for r in respondents:
-        line = [r,'','']
+        try:
+            lf = int(r)
+            n = r
+        except:
+            try:
+                lf = int(r.split(' ')[0])
+                n = ' '.join(r.split(' ')[1:]).replace('(','').replace(')','')
+            except:
+                lf = r
+                n = r
+        lf = str(lf)
+        line = [lf,n,'','']
         punkte = 0
         flagged = False
         for q in questions:
@@ -750,9 +766,9 @@ def write_results(result = None, pdf=True, table="Punktetabelle.xls"):
                 if result[r][q]['State']==1:flagged=True
             except:
                 pass
-            line[1]=str(punkte)
+            line[2]=str(punkte)
             if flagged:
-                line[2]='Achtung: Mindestens eine der Fragen ist noch nicht geprüft'
+                line[3]='Achtung: Mindestens eine der Fragen ist noch nicht geprüft'
         outf.write('\t'.join(line)+'\n')
     outf.close()
 

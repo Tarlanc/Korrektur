@@ -68,11 +68,11 @@ for f in fnames:
 
 
 print("\nFinished with "+str(len(conflicts))+" conflicts")
-outf = open(outf,'w')
+outf = open(outf,'w',encoding="utf-8",errors="ignore")
 outf.write(str(results))
 outf.close()
 
-outf = open(conf,'w')
+outf = open(conf,'w',encoding="utf-8",errors="ignore")
 for c in conflicts:
     outf.write(str(c)+'\n')
 outf.close()

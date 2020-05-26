@@ -209,11 +209,13 @@ def mark_question(q,a):
 ################## Anpassen für unterschiedliche Tests
 
 kc = 'Laufnummer' ## Key column. Might be revised for tests.
-fname = "Eingabe.xls"
+fname = "Statistik.xls"#"Eingabe.xls"
 outfname = "results.json"
 
 ##################
 
+kc = 'Laufnummer'
+add_kc = ["Vorname","Nachname","Benutzername"]
 
 inf = open(fname,'r',
            encoding="utf-8",errors='ignore')
@@ -259,6 +261,14 @@ print('\nStruktur der Fragen:\n------------\n\n'+baum_schreiben(questions))
 rd = {}
 for i in range(len(resp[kc])):
     r = resp[kc][i]
+    add = []
+    for a in add_kc:
+        try:
+            add.append(resp[a][i])
+        except:
+            pass
+    if len(add)>0:
+        r+=" ({0})".format(', '.join(add))
     rd[r]={}
     for q in questions.keys():
         response = {}
@@ -268,7 +278,7 @@ for i in range(len(resp[kc])):
 
 #print(list(rd.keys()))
 
-o = open(outfname,'w')
+o = open(outfname,'w',encoding="utf-8",errors="ignore")
 o.write(str(rd))
 o.close()
 

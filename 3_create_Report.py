@@ -142,10 +142,22 @@ questions = sorted(list(result[respondents[0]].keys()))
 #print(respondents)
 #print(questions)
 
-outf = open(table,'w')
-outf.write('\t'.join(['Name','Total','Remarks']+questions)+'\n')
+outf = open(table,'w',encoding="utf-8",errors="ignore")
+outf.write('\t'.join(['Laufnummer','Name','Total','Remarks']+questions)+'\n')
 for r in respondents:
-    line = [r,'','']
+    try:
+        lf = int(r)
+        n = r
+    except:
+        try:
+            lf = int(r.split(' ')[0])
+            n = ' '.join(r.split(' ')[1:]).replace('(','').replace(')','')
+        except:
+            lf = r
+            n = r
+    lf = str(lf)
+    line = [lf,n,'','']
+    print(line)
     punkte = 0
     flagged = False
     for q in questions:
@@ -158,9 +170,9 @@ for r in respondents:
             if result[r][q]['State']==1:flagged=True
         except:
             pass
-        line[1]=str(punkte)
+        line[2]=str(punkte)
         if flagged:
-            line[2]='Achtung: Mindestens eine der Fragen ist noch nicht geprüft'
+            line[3]='Achtung: Mindestens eine der Fragen ist noch nicht geprüft'
     outf.write('\t'.join(line)+'\n')
 outf.close()
 

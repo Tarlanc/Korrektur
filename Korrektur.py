@@ -1,9 +1,11 @@
 
 import time
+import math
 from tkinter import *
 from tkinter import messagebox
 from tkinter import filedialog
 from tkinter import simpledialog
+
 
 try:
     from fpdf import FPDF
@@ -26,6 +28,8 @@ class Anzeige(Frame):
         top.rowconfigure(0, weight=1)
         top.columnconfigure(0, weight=1)
         self.grid(sticky=N+S+W+E)
+        self.bind_all("<Next>",self.nextq)
+        self.bind_all("<Prior>",self.prevq)
 
         self.set_window()
 
@@ -41,6 +45,7 @@ class Anzeige(Frame):
         self.m.menu.add_command(label='Andere Daten Laden',command=self.read_new_data)
         self.m.menu.add_command(label='Sicherungskopie erstellen',command=self.store_data)        
         self.m.menu.add_command(label='Übersicht',command=self.check_completeness)
+        self.m.menu.add_command(label='Punkte-Übersicht',command=self.check_scores)
         self.m.menu.add_command(label='Ergebnisse exportieren',command=self.export_results)
         self.m.menu.add_separator()
         self.m.menu.add_command(label='Daten hinzufügen',command=self.attach_new_data)
@@ -128,7 +133,7 @@ class Anzeige(Frame):
 
     def export_results(self):
         if messagebox.askokcancel("Wirklich exportieren?","Sollen die Daten wirklich exportiert werden? Prüfen Sie vorher, ob wirklich alle Korrekturen vorgenommen sind.\nPrüfungen mit unvollständigen Punkten werden einen fehlenden Wert bei der Gesamtpuktzahl haben."):
-            write_results(self.resp)
+            write_results(self.resp,questions=self.questions)
 
 
     def attach_new_data(self):
@@ -296,7 +301,7 @@ class Anzeige(Frame):
             return False
                     
 
-    def next(self):
+    def next(self,event=None):
         global settings
         if self.store(False):
             settings['Curr_R']+=1
@@ -305,7 +310,7 @@ class Anzeige(Frame):
                 settings['Curr_R']=len(self.respondents)-1
             self.refresh()
 
-    def prev(self):
+    def prev(self,event=None):
         global settings
         if self.store(False):
             settings['Curr_R']-=1
@@ -313,6 +318,24 @@ class Anzeige(Frame):
                 messagebox.showerror("Geht nicht weiter","Das ist der erste Teilnehmer")
                 settings['Curr_R']=0
             self.refresh()
+
+    def nextq(self,event=None):
+        global settings
+        if self.store(False):
+            settings['Curr_Q']+=1
+            if not settings['Curr_Q']<len(self.questions):
+                messagebox.showerror("Geht nicht weiter","Keine Weiteren Fragen")
+                settings['Curr_Q']=len(self.questions)-1
+            self.refresh()
+
+    def prevq(self,event=None):
+        global settings
+        if self.store(False):
+            settings['Curr_Q']-=1
+            if not settings['Curr_Q']>=0:
+                messagebox.showerror("Geht nicht weiter","Das ist der erste Frage")
+                settings['Curr_Q']=0
+            self.refresh()            
         
     def refresh(self):
         global settings
@@ -425,6 +448,70 @@ class Anzeige(Frame):
                 b = self.infobox.plot.create_rectangle(r,q,r+rstep-1,q+qstep-2,fill=col)
                 self.infobox.plot.tag_bind(b, '<Button-1>', CMD(self.jump,ri,qi))
                 self.infobox.plot.tag_bind(b, '<Enter>', CMD(self.change_lab,ri,qi,prob))
+
+
+    def check_scores(self):
+        #print(len(self.resp))
+        width = 1000
+        height = 500
+
+        nq = len(self.questions)
+        nr = len(self.respondents)
+
+        if width < nr*14:
+            width = nr*14
+        if height < nq*20:
+            height = nq*20
+
+        self.case = StringVar()
+        self.case.set("Maus über ein Feld, um Informationen zu sehen")
+
+        
+        self.infobox = Toplevel(self)
+        self.infobox.rowconfigure(1, weight=1)
+        self.infobox.columnconfigure(1, weight=1)
+        self.infobox.title("Übersicht über Korrekturen")
+        la = Label(self.infobox,textvariable=self.case)
+        la.grid(row=0,column=1)
+        self.infobox.ysc = Scrollbar(self.infobox, orient=VERTICAL)
+        self.infobox.ysc.grid(row=1,column=2,sticky=N+S)
+        self.infobox.xsc = Scrollbar(self.infobox, orient=HORIZONTAL)
+        self.infobox.xsc.grid(row=2,column=1,sticky=E+W)
+        self.infobox.plot = Canvas(self.infobox,bd=0,width=width,height=height,bg="#ffffff", scrollregion=(0, 0, width, height),
+                                   yscrollcommand=self.infobox.ysc.set, xscrollcommand=self.infobox.xsc.set)
+        self.infobox.plot.grid(row=1,column=1,sticky=N+E+S+W)
+        self.infobox.ysc["command"]=self.infobox.plot.yview
+        self.infobox.xsc["command"]=self.infobox.plot.xview
+
+        qstep = (height-50)//nq
+        qt = []
+        for i in range(nq):
+            qt.append(i*qstep+25)
+
+        rstep = (width-125)//nr
+        rt = []
+        for i in range(nr):
+            rt.append(i*rstep+100)
+
+        for qi in range(nq):
+            q = qt[qi]
+            self.infobox.plot.create_text(50,(q+qstep//2),text=self.questions[qi])
+            for ri in range(nr):
+                r = rt[ri]
+                item = self.resp[self.respondents[ri]][self.questions[qi]]
+                try:
+                    pscore = float(item['Points'])/item['Max_Points']
+                except:
+                    pscore = ''
+
+                if type(pscore)==float:
+                    col = heat_color(pscore,'bw')
+                    t = str(pscore) #str(item['Points'])
+                
+                    b = self.infobox.plot.create_rectangle(r,q,r+rstep-1,q+qstep-2,fill=col)
+                    self.infobox.plot.tag_bind(b, '<Button-1>', CMD(self.jump,ri,qi))
+                    self.infobox.plot.tag_bind(b, '<Enter>', CMD(self.change_lab,ri,qi,t))
+                    
 
     def jump(self,resp,quest,event=""):
         #print(resp,quest)
@@ -584,6 +671,74 @@ def read_table(lines):
             d[vlist[vi]].append(values[vi])
 
     return d
+
+def heat_color(sval,mode='red'): ##Return a color value from a float in range [0;1]
+    ##Modes: bw: Black and white (return a grayscale) 0=black
+    ##       ibw: Grayscales with 0=white as highest value
+    ##       red: Red-Green continuum
+    
+    ccode = "#ff0000"
+    if mode == 'bw':
+        v = int(sval * 255)
+        if v > 255:
+            v = 255
+        if v < 0:
+            v = 0
+
+        hn = hex(v)[2:]
+        if len(hn)==1:
+            hn = '0'+hn
+        ccode = '#' + hn + hn + hn
+    elif mode == 'ibw':
+        v = int(sval * 255)
+        if v > 255:
+            v = 255
+        if v < 0:
+            v = 0
+
+        v = 255-v
+        hn = hex(v)[2:]
+        if len(hn)==1:
+            hn = '0'+hn
+        ccode = '#' + hn + hn + hn
+    elif mode == 'red':
+        gval = math.sin(sval*3.14159)/2+0.5
+        bval = math.sin(sval*4+.9)/2+0.5
+        rval = math.sin(sval*3-1)/2+0.5
+        rv = int(rval * 255)
+        if rv > 255:
+            rv = 255
+        if rv < 0:
+            rv = 0
+        gv = int(gval * 255)
+        if gv > 255:
+            gv = 255
+        if gv < 0:
+            gv = 0
+        bv = int(bval * 200)
+        if bv > 255:
+            bv = 255
+        if bv < 0:
+            bv = 0
+
+
+        rn = hex(rv)[2:]
+        if len(rn)==1:
+            rn = '0'+rn
+        gn = hex(gv)[2:]
+        if len(gn)==1:
+            gn = '0'+gn
+        bn = hex(bv)[2:]
+        if len(bn)==1:
+            bn = '0'+bn
+        ccode = '#' + rn + gn + bn
+        #ccode = '#' + bn + bn + bn 
+
+    else:
+        ccode = '#000000'
+    return ccode
+
+
 
 def mark_question(q,a):
     #print(a)
@@ -758,19 +913,24 @@ def read_xls(fname = "Eingabe.xls"):
 
     return [rd,questions]
 
-def create_einsicht(res,r,folder='.\\',veranstaltung=''): ## Takes one respondent dict
+def create_einsicht(res,r,folder='.\\',veranstaltung='',questions=[]): ## Takes one respondent dict
     disclaimer = " ".join(["In diesem Dokument sehen Sie für alle Fragen der Prüfung",
                             "sowohl Ihre eigene Antwort als auch die Antwort, die für",
                             "diese Frage als korrekt gewertet wurde.",
                             "Darunter sind Ihre Punkte, sowie die maximale Punktzahl",
-                            "für die entsprechende Aufgabe notiert.",
+                            "für die entsprechende Aufgabe notiert.\n",
                             "Falls es Bemerkungen gibt, sind diese am Ende jeder Frage",
                             "notiert. Die Bemerkungen wurden zum Teil automatisch erstellt",
                             "und beziehen sich auf die Fehler, die zu Abzügen geführt haben.",
                             "\n\n",
                             "Auf jeder Seite wird genau eine Frage dargestellt. Prüfen Sie",
                             "jeweils, ob die Frage korrekt bewertet wurde und ob Sie einen",
-                            "allfälligen Abzug von Punkten nachvollziehen können.",
+                            "allfälligen Abzug von Punkten nachvollziehen können.\n\n",
+                            "Pro Fehler bei einer Multiple Choice / KPRIM  Frage wurden 50% der",
+                            "Maximalpunktzahl abgezogen. Single Choice können nur das maximum",
+                            "oder 0 Punkte geben. Es gibt bei keiner Aufgabe weniger als 0 Punkte."
+                            "Bei Essay und offenen Fragen sind die Abzüge jeweils in den Kommentaren"
+                            "erläutert.\n"
                             "Falls Sie mit einer Entscheidung nicht einverstanden sind, steht",
                             "Ihnen das Mittel eines Wiedererwägungsgesuchs zur Verfügung. Stellen",
                             "Sie ein solches Gesuch zu Handen Ihres Dozenten und beschreiben Sie",
@@ -779,8 +939,8 @@ def create_einsicht(res,r,folder='.\\',veranstaltung=''): ## Takes one responden
                             "Das Gesuch wird dann geprüft und Sie erhalten eine schriftliche Rückmeldung.",
                             "\n\n\n\n",
                             "Anmerkung: Dieses Dokument wurde automatisch erstellt und kann ein seltsames",
-                            "Layout haben. Die Informationen sind jedoch korrekt und wurden bei",
-                            "der Punktevergabe genau so verwendet."])
+                            "Layout haben. Die Informationen (Punkte / Bemerkungen) wurden bei",
+                            "der Notenvergabe genau so verwendet."])
 
     p = 0
     mp = 0
@@ -794,17 +954,17 @@ def create_einsicht(res,r,folder='.\\',veranstaltung=''): ## Takes one responden
         except:
             mp=''
 
-    fname = folder + 'Resultate_'+ r + '.pdf'
+    fname = folder + 'Resultate_'+ r.split(' (')[0] + '.pdf'
     pdf = FPDF(orientation='P', unit='mm', format='A4')
     pdf.add_page()
     pdf.set_font("Arial", size=16)
     pdf.set_fill_color(200,200,255)
-    header = "Dokument für die Prüfungseinsicht\n"+veranstaltung+"\nTeilnehmer: "+r
+    header = "Dokument für die Prüfungseinsicht\n"+veranstaltung+"\nTeilnehmer*in: "+r.replace(", k.A.","")
     pdf.multi_cell(0, 12, txt=header,
                    align="C",border=1,fill=True)
 
     pdf.set_font("Arial", size=14,style="B")
-    pdf.y = pdf.y+20
+    pdf.y = pdf.y+15
     pdf.multi_cell(0,6, txt="Gesamtergebnis")
     if type(p)==str or type(mp)==str:
         pdf.set_font("Arial", size=12)
@@ -817,23 +977,28 @@ def create_einsicht(res,r,folder='.\\',veranstaltung=''): ## Takes one responden
         
 
     pdf.set_font("Arial", size=14,style="B")
-    pdf.y = pdf.y+20
+    pdf.y = pdf.y+15
     pdf.multi_cell(0,6, txt="Erläuterung zu diesem Dokument")
 
     pdf.set_font("Arial", size=12)
     pdf.y = pdf.y+5
     pdf.multi_cell(0,6, txt=disclaimer)
 
-    pdf.y = pdf.y+40
+    pdf.y = pdf.y+20
     pdf.set_font("Arial", size=10, style="I")
     pdf.multi_cell(0,6, txt="Erstellt am: "+str(time.ctime()))
 
+    qnr = 0
 
-    for q in sorted(list(res[r].keys())):
+    if questions == []:questions = sorted(res[r].keys())
+
+
+    for q in questions:
+        qnr+=1
         pdf.add_page()
         pdf.set_font("Arial", size=16)
         pdf.set_fill_color(220,220,255)
-        t = "Aufgabe: {0} ({1})\nMaximale Punktzahl: {2}".format(q,res[r][q]['Title'],res[r][q]['Max_Points'])
+        t = str(qnr)+". Aufgabe: {0} ({1})\nMaximale Punktzahl: {2} / Typ: {3}".format(q,res[r][q]['Title'],res[r][q]['Max_Points'],res[r][q]['Type'])
         pdf.multi_cell(0, 12, txt=t, align="C",border=1,fill=True)
 
         pdf.set_fill_color(220,250,220)
@@ -866,17 +1031,24 @@ def create_einsicht(res,r,folder='.\\',veranstaltung=''): ## Takes one responden
         pdf.y+=20
         pdf.multi_cell(0,6, txt="Sie haben "+str(res[r][q]['Points'])+" von "+str(res[r][q]['Max_Points'])+" Punkten erhalten.")
 
+    inv = open(folder+'_inventory.txt','a',encoding="utf-8",errors="ignore")
+    rnr = r.split(' ')[0]
+    
     try:
         pdf.output(fname)
-    except:
+        inv.write(rnr+'\t'+r+'\t'+fname+'\n')
+        inv.close()
+    except Exception as f:
         er = open(fname+"_ERROR.txt","w",encoding="utf-8",errors="ignore")
         er.write("Error. Could not export case:"+r+"\nThere must be a strange special character in this respondent's answers. Please mend manually.\n")
         er.close()
+        inv.write(rnr+'\t'+r+'\t'+str(f)+'\n')
+        inv.close()
 
 
-def write_results(result = None, pdf=True, table="Punktetabelle.xls"):
+def write_results(result = None, pdf=True, table="Punktetabelle.xls",questions=[]):
     respondents = sorted(list(result.keys()))
-    questions = sorted(list(result[respondents[0]].keys()))
+    if questions == []: questions = sorted(list(result[respondents[0]].keys()))
 
     outf = open(table,'w',encoding='utf-8',errors='ignore')
     outf.write('\t'.join(['Laufnummer','Name','Total','Remarks']+questions)+'\n')
@@ -915,10 +1087,13 @@ def write_results(result = None, pdf=True, table="Punktetabelle.xls"):
         pdf = settings['PDF']
 
     if pdf:
+        inv = open('_inventory.txt','w',encoding="utf-8",errors="ignore")
+        inv.write('Laufnr.\tResp\tFile\n')
+        inv.close()
         titel = simpledialog.askstring("Ausgabetitel","Welche Überschrift sollen die Dokumente für die Prüfungseinsicht tragen?\n\nWenn Sie dieses Textfeld leer lassen, werden keine PDFs erstellt.\n\n(z.B: 'Vorlesung: Statistik und Datenanalyse')")
         if len(titel)>2:
             for r in respondents:
-                create_einsicht(result,r,veranstaltung=titel)
+                create_einsicht(result,r,veranstaltung=titel,questions=questions)
 
     messagebox.showinfo("Export erfolgreich","Alle Daten wurden erfolgreich exportiert")
                     

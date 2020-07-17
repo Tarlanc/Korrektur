@@ -51,11 +51,15 @@ class Anzeige(Frame):
         self.m.menu.add_command(label='Daten hinzufügen',command=self.attach_new_data)
 
 
-        self.cq = Label(self,text="  Aktuelle Frage: ")
-        self.cq.grid(row=0,column=1,columnspan=2,sticky=W)
+        self.qbox = Frame(self)
+        self.qbox.grid(row=0,column=1,columnspan=4)
 
-        b = Button(self,text="Übersicht",command=self.check_completeness)
-        b.grid(row=0,column=3)
+        self.cq = Label(self.qbox,text="  Aktuelle Frage: ")
+        self.cq.grid(row=0,column=1,sticky=W)
+        b = Button(self.qbox,width=3,text="-",command=self.prevq)
+        b.grid(row=0,column=0,sticky=E)
+        b = Button(self.qbox,width=3,text="+",command=self.nextq)
+        b.grid(row=0,column=2,sticky=W)
 
         spacer = Label(self,text='')
         spacer.grid(row=2,column=0)
@@ -861,7 +865,7 @@ def mark_question(q,a):
 def read_xls(fname = "Eingabe.xls"):
     kc = 'Laufnummer'
     add_kc = ["Vorname","Nachname","Benutzername"]
-    
+
     inf = open(fname,'r',
            encoding="utf-8",errors='ignore')
     ls = inf.readlines()
@@ -873,6 +877,11 @@ def read_xls(fname = "Eingabe.xls"):
         tend+=1
 
     resp = read_table(ls[tstart:tend])
+
+    if not kc in resp.keys():
+        #print("Englische Eingabedatei")
+        resp[kc] = resp['Sequence number']
+        add_kc += ['First name', 'Last name', 'User name'] ## Zur Sicherheit alle 6
 
     #print(list(resp.keys()))
     #print(resp[kc])

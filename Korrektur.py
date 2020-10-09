@@ -49,12 +49,14 @@ class Anzeige(Frame):
         self.m.menu.add_command(label='Ergebnisse exportieren',command=self.export_results)
         self.m.menu.add_separator()
         self.m.menu.add_command(label='Daten hinzufügen',command=self.attach_new_data)
+        self.m.menu.add_command(label='Lösungsschema hinzufügen',command=self.attach_new_corr)
+        
 
 
         self.qbox = Frame(self)
         self.qbox.grid(row=0,column=1,columnspan=4)
 
-        self.cq = Label(self.qbox,text="  Aktuelle Frage: ")
+        self.cq = Label(self.qbox,text="  Aktuelle Frage: ",width=80,anchor=W)
         self.cq.grid(row=0,column=1,sticky=W)
         b = Button(self.qbox,width=3,text="-",command=self.prevq)
         b.grid(row=0,column=0,sticky=E)
@@ -72,17 +74,18 @@ class Anzeige(Frame):
 
         self.ysc1 = Scrollbar(self, orient=VERTICAL)
         self.ysc1.grid(row=4,column=2,sticky=N+S)
-        self.geg = Text(self,width=60,height=10,wrap=WORD,bg="#eeeeff",
+        self.geg = Text(self,width=60,height=14,wrap=WORD,bg="#eeeeff",
                         relief=SUNKEN,yscrollcommand=self.ysc1.set)
         self.geg.grid(row=4,column=0,columnspan=2)
         self.ysc1["command"]=self.geg.yview
 
         self.ysc2 = Scrollbar(self, orient=VERTICAL)
         self.ysc2.grid(row=4,column=5,sticky=N+S)
-        self.req = Text(self,width=60,height=10,wrap=WORD,bg="#eeffee",
+        self.req = Text(self,width=60,height=14,wrap=WORD,bg="#eeffee",
                         relief=SUNKEN,yscrollcommand=self.ysc2.set)
         self.req.grid(row=4,column=3,columnspan=2)
         self.ysc2["command"]=self.req.yview
+        self.req.bind('<Button-1>',self.correctans)
 
         self.ysc3 = Scrollbar(self, orient=VERTICAL)
         self.ysc3.grid(row=7,column=2,sticky=N+S)
@@ -134,10 +137,11 @@ class Anzeige(Frame):
 
         if self.read_data():
             self.refresh()
+            messagebox.showinfo("Daten geladen","Sitzung erfolgreich wiederhergestellt") ## Sinnlose Message, damit der Focus stimmt. K.A. wieso!
 
     def export_results(self):
         if messagebox.askokcancel("Wirklich exportieren?","Sollen die Daten wirklich exportiert werden? Prüfen Sie vorher, ob wirklich alle Korrekturen vorgenommen sind.\nPrüfungen mit unvollständigen Punkten werden einen fehlenden Wert bei der Gesamtpuktzahl haben."):
-            write_results(self.resp,questions=self.questions)
+            write_results(self.data,questions=self.questions,respondents=self.respondents)
 
 
     def attach_new_data(self):
@@ -151,20 +155,47 @@ class Anzeige(Frame):
             add_resp = []
             add_quest = []
 
-            for r in j.keys():
+            for r in j['Resp'].keys():
                 if not r in self.respondents:
                     add_resp.append(r)
-            for q in j[list(j.keys())[0]].keys():
+            for q in j['Quest'].keys():
                 if not q in self.questions:
                     add_quest.append(q)
 
             if len(add_resp)+len(add_quest)==0:
-                self.combine_jsons(j)
+                self.combine_jsons(j['Resp'])
             else:
                 messagebox.showerror("MISMATCH","Die neue Datei enthält Daten, die nicht mit der aktuell geöffneten vereibar sind.\n\n"+str(len(add_quest))+" Fragen\n"+str(len(add_resp))+" Befragte\n\nstimmen nicht überein")          
 
+    def attach_new_corr(self):
+        if messagebox.askokcancel("Vorsicht!","Sie sind dabei, das Lösungsschema dieser Korrektur durch ein anderes zu ersetzen. Damit werden auch die automatischen Korrekturen überschrieben. \n\nVergewissern Sie sich, dass Sie wissen, was Sie tun und legen Sie vorher besser eine Sicherungskopie der aktuell geöffneten Daten an.\n\nDie aktuellen Daten werden überschrieben!\n\nWollen Sie fortfahren?"):
+            fname = filedialog.askopenfilename(**{'defaultextension':['.json'],
+                                                  'filetypes':[('JSON','.json'),('Other','.*')]})
+            inf = open(fname,'r',encoding='utf-8',errors='ignore')
+            j = eval(inf.readline())
+            inf.close()
+            
+            add_quest = []
+            for q in j['Quest'].keys():
+                if not q in self.questions:
+                    add_quest.append(q)
+
+            if len(add_quest)==0:
+                for q in j['Quest']: ## If q is incomplete (misses questions), this won't matter. It just updates the ones that exist.
+                    valid = True
+                    for a in j['Quest'][q]['Ans'].keys():
+                        if j['Quest'][q]['Ans'][a]['Correct']==None:valid=False
+
+                    if valid:
+                        self.data['Quest'][q]=j['Quest'][q]
+                        self.mark_question(q)
+                self.refresh()
+            else:
+                messagebox.showerror("MISMATCH","Die neue Datei enthält Daten, die nicht mit der aktuell geöffneten vereibar sind.\n\n"+str(len(add_quest))+" Fragen stimmen nicht überein")          
+
+
     def combine_jsons(self,r):
-        results = dict(self.resp)
+        results = dict(self.data['Resp'])
         counter = [0,0,0]
         conflicts = []
         overwrite = ['Points','State','Remarks']
@@ -206,7 +237,7 @@ class Anzeige(Frame):
             outt += " conflicts to results."
             messagebox.showinfo("Success",outt)
 
-            self.resp=results
+            self.data['Resp']=results
                 
                         
         except Exception as e:
@@ -216,8 +247,10 @@ class Anzeige(Frame):
 
     def read_new_data(self):
         global settings
-        fname = filedialog.askopenfilename(**{'defaultextension':['.xls','.txt'],
-                                                          'filetypes':[('Result File',['.xls','.txt']),('JSON','.json'),('Other','.*')]})
+        fname = filedialog.askopenfilename(**{'defaultextension':['.xls','.csv','.txt'],
+                                              'filetypes':[('Result File',['.xls','.csv','.txt']),
+                                                           ('JSON','.json'),
+                                                           ('Other','.*')]})
         j = None
 
         if fname.split('.')[-1] in ['json','JSON','Json']:
@@ -230,80 +263,73 @@ class Anzeige(Frame):
                 
         else:
             try:
-                j = read_xls(fname)[0]
+                j = read_xls(fname)
             except:
                 pass
 
-            if type(j) == dict:
+            if type(j) == dict: ## Create the temporary file.
                 o = open(settings['J_Filename'],'w',encoding='utf-8',errors='ignore')
                 o.write(str(j))
                 o.close()
         
         if type(j)==dict:
-            self.m.frage.delete(0,len(self.questions)-1) ## Reset the question menu
-            self.resp = j
+            try:
+                self.m.frage.delete(0,len(self.questions)-1) ## Reset the question menu
+            except:
+                pass ## First start of the program. No questions to remove.
+            self.data = j
             self.respondents = []
             self.questions = []
-            self.question_titles = []
-            for k in j.keys():
-                self.respondents.append(k)
-            for q in j[self.respondents[0]].keys():
-                self.questions.append(q)
-                self.question_titles.append(j[self.respondents[0]][q]['Title'])
-                self.m.frage.add_command(label=str(q),command=CMD(self.change_q,q))
 
+            for k in j['Resp'].keys():
+                self.respondents.append(k)
+            for q in j['Quest'].keys():
+                self.questions.append(q)
+                self.m.frage.add_command(label=str(q),command=CMD(self.change_q,q))
             settings['Curr_R']=0
             settings['Curr_Q']=0
             self.refresh()
             
-
     def read_data(self): ## Initial set-up of data
         j = 0
+        fn = ''
+
+                
         try:
             inf = open(settings['J_Filename_Out'],'r',encoding='utf-8',errors='ignore')
             j = eval(inf.readline())
+            fn = settings['J_Filename_Out']
             inf.close()  
         except:
             try:
                 inf = open(settings['J_Filename'],'r',encoding='utf-8',errors='ignore')
                 j = eval(inf.readline())
+                fn = settings['J_Filename']
                 inf.close()
             except:
-                try:
-                    j = read_xls(settings['E_Filename'])[0]
-                except:
-                    messagebox.showerror("Kein Korrekturfile","Es wurde kein Korrekturfile gefunden und es gibt keine XLS-Tabelle namens '"+settings['E_Filename']+"'.\n\nBitte wählen Sie eine gültige OLAT-Ergebnistabelle MIT RESULTATEN in Spalte F aus.")
-                    fname = filedialog.askopenfilename(**{'defaultextension':['.xls','.txt'],
-                                                          'filetypes':[('Result File',['.xls','.txt']),('Other','.*')]})
-                    try:
-                        j = read_xls(fname)[0]
-                    except:
-                        pass ## Goddammit, at least select a valid file.
-                if type(j) == dict:
-                    o = open(settings['J_Filename'],'w',encoding='utf-8',errors='ignore')
-                    o.write(str(j))
-                    o.close()
-                                        
-                    
+                pass
+
         if type(j)==dict:
-            self.resp = j
-            self.respondents = []
-            self.questions = []
-            self.question_titles = []
-            for k in j.keys():
-                self.respondents.append(k)
-            for q in j[self.respondents[0]].keys():
-                self.questions.append(q)
-                self.question_titles.append(j[self.respondents[0]][q]['Title'])
-                self.m.frage.add_command(label=str(q),command=CMD(self.change_q,q))
+            if messagebox.askokcancel("Temporäre Datei laden?",'Es wurde eine gültige temporäre Datei mit Namen "{0}" gefunden. Möchten Sie diese Datei laden?\nWenn Sie auf "Abbrechen" klicken, können Sie andere Dateien laden'.format(fn)):
+                self.data = j
+                self.respondents = []
+                self.questions = []
+                for k in j['Resp'].keys():
+                    self.respondents.append(k)
+                for q in j['Quest'].keys():
+                    self.questions.append(q)
+                    self.m.frage.add_command(label=str(q),command=CMD(self.change_q,q))
+                if len(self.respondents)<settings['Curr_R']+1:settings['Curr_R']=0
+                if len(self.questions)<settings['Curr_Q']+1:settings['Curr_Q']=0
 
-            if len(self.respondents)<settings['Curr_R']+1:settings['Curr_R']=0
-            if len(self.questions)<settings['Curr_Q']+1:settings['Curr_Q']=0
-
-            return True
+                return True
+            else:
+                return False
         else:
             return False
-                    
+        
+
+       
 
     def next(self,event=None):
         global settings
@@ -339,21 +365,286 @@ class Anzeige(Frame):
             if not settings['Curr_Q']>=0:
                 messagebox.showerror("Geht nicht weiter","Das ist der erste Frage")
                 settings['Curr_Q']=0
-            self.refresh()            
+            self.refresh()
+
+
+    def correctans(self,event=None):
+        global settings
+        q = self.data['Quest'][self.questions[settings['Curr_Q']]]
+
+        h = 'Question-ID: {0} ({1}/{2})'.format(self.questions[settings['Curr_Q']],settings['Curr_Q'],len(self.questions))
+        h+= '\nType:  '+q['Type']
+        h+= '\nTitle: '+q['Title']
+        h+= '\nQuestion:\n'
+        
+        self.ca = Toplevel(self)
+        self.ca.rowconfigure(1, weight=1)
+        self.ca.columnconfigure(1, weight=1)
+        self.ca.title("Lösungsschema ändern")
+
+        self.ca.header = Text(self.ca,width=120,height=14,bg="#ffffff",wrap=WORD)
+        self.ca.header.tag_config('header',font=("Arial",11,"bold"))
+        self.ca.header.grid(row=0,column=1,columnspan=2,sticky=W+E)
+        self.ca.header.insert(END,h)
+        self.ca.header.insert(END,q['Question'],('header'))
+                        
+
+        Label(self.ca,text="Maximale Punktzahl: ").grid(row=1,column=1,sticky=E)
+        self.ca.mp = Entry(self.ca,width=10)
+        self.ca.mp.grid(row=1,column=2,sticky=W)
+        self.ca.mp.insert(END,str(q['Max']))
+
+        Label(self.ca,text="\nKorrekte Antwort: ").grid(row=1,column=1,sticky=W)
+        self.ca.f = Frame(self.ca, borderwidth=2, width=120, relief=SUNKEN)
+        self.ca.f.grid(row=2,column=1,columnspan=2,sticky=W+E)
+
+        Label(self.ca,text="\nKorrekturhinweis: ").grid(row=3,column=1,sticky=W)
+        self.ca.advice = Text(self.ca,width=120,height=3,bg="#ffffff",wrap=WORD)
+        self.ca.advice.grid(row=4,column=1,columnspan=2,sticky=W+E)
+        self.ca.advice.insert(END,q['Advice'])
+        
+        Button(self.ca, text="OK", command=self.caconf, width=20).grid(row=10,column=1,sticky=W)
+        Button(self.ca, text="Abbrechen", command=self.cakill, width=20).grid(row=10,column=2,sticky=W)
+
+        if q['Type'] in ['KPRIM','KPR']:
+            Label(self.ca.f,text="+").grid(row=0,column=1)
+            Label(self.ca.f,text="-").grid(row=0,column=2)
+            self.answers = []
+            r = 1
+            for a in sorted(q['Ans'].keys()):
+                Label(self.ca.f,text=q['Ans'][a]['Item'],width=100,anchor=E).grid(row=r,column=0)
+                choice = IntVar()
+                choice.set(0)
+                if q['Ans'][a]['Correct'] == '+':
+                    choice.set(1)
+                Radiobutton(self.ca.f,variable=choice,value=1).grid(row=r,column=1)
+                Radiobutton(self.ca.f,variable=choice,value=0).grid(row=r,column=2)
+                self.answers.append(choice)
+                r+=1
+
+        elif q['Type'] == 'SCQ':
+            self.answers = []
+            r = 1
+            items = list(sorted(q['Ans'].keys()))
+            self.answers = IntVar()
+            self.answers.set(0)
+            for i in range(len(items)):
+                Label(self.ca.f,text=q['Ans'][items[i]]['Item'],width=100,anchor=E).grid(row=r,column=0)
+                if q['Ans'][items[i]]['Correct'] == '1':
+                    self.answers.set(i)
+                Radiobutton(self.ca.f,variable=self.answers,value=i).grid(row=r,column=1)
+                r+=1
+
+        elif q['Type'] == 'MCQ':
+            self.answers = []
+            r = 1
+            for a in sorted(q['Ans'].keys()):
+                Label(self.ca.f,text=q['Ans'][a]['Item'],width=100,anchor=E).grid(row=r,column=0)
+                choice = IntVar()
+                choice.set(0)
+                if q['Ans'][a]['Correct'] in [1,'1']:
+                    choice.set(1)
+                Checkbutton(self.ca.f,variable=choice).grid(row=r,column=1)
+                self.answers.append(choice)
+                r+=1
+
+        elif q['Type'] == 'FIB':
+            self.ca.header['height']=20
+            self.answers = []
+            r = 1
+            for a in sorted(q['Ans'].keys()):
+                Label(self.ca.f,text="Gap: [{0}]:".format(q['Ans'][a]['Item']),width=100,anchor=E).grid(row=r,column=0)
+                e = Entry(self.ca.f,width=20)
+                e.grid(row=r,column=1)
+                if q['Ans'][a]['Correct'] == None:
+                    e.insert(END,q['Ans'][a]['Item'])
+                else:
+                    e.insert(END,str(q['Ans'][a]['Correct']))
+                self.answers.append(e)
+                r+=1
+
+        else: ## It's an essay
+            self.answers = Text(self.ca.f,height=10)
+            self.answers.grid(row=1,column=1,sticky=W+E)
+            a = list(q['Ans'].keys())[0]
+            if q['Ans'][a]['Correct'] == None:
+                pass
+            else:
+                self.answers.insert(END,q['Ans'][a]['Correct'])
+            
+                
+
+    def caconf(self,event=None):
+        global settings
+        q = self.data['Quest'][self.questions[settings['Curr_Q']]]
+        mp = self.ca.mp.get()
+        try:
+            q['Max']=float(mp)
+        except:
+            pass
+        
+        if q['Type'] in ['KPRIM','KPR']:
+            k = sorted(q['Ans'].keys())
+            for i in range(len(k)):
+                if self.answers[i].get()==0:
+                    q['Ans'][k[i]]['Correct']='-'
+                else:
+                    q['Ans'][k[i]]['Correct']='+'
+        elif q['Type'] == 'SCQ':
+            k = sorted(q['Ans'].keys())
+            for i in range(len(k)):
+                if self.answers.get()==i:
+                    q['Ans'][k[i]]['Correct']='1'
+                else:
+                    q['Ans'][k[i]]['Correct']='0'
+
+        elif q['Type'] == 'MCQ':
+            k = sorted(q['Ans'].keys())
+            for i in range(len(k)):
+                if self.answers[i].get()==0:
+                    q['Ans'][k[i]]['Correct']='0'
+                else:
+                    q['Ans'][k[i]]['Correct']='1'
+
+        elif q['Type'] == 'FIB':
+            k = sorted(q['Ans'].keys())
+            for i in range(len(k)):
+                a = self.answers[i].get()
+                if a[0]=='[':
+                    try:
+                        a=eval(a)
+                    except:
+                        pass
+                q['Ans'][k[i]]['Correct']=a
+
+        else:
+            a = self.answers.get(1.0,END)
+            k = list(q['Ans'].keys())[0]
+            q['Ans'][k]['Correct']=a
+
+        adv = self.ca.advice.get(1.0,END)
+        try:
+            while adv[-1]=='\n':adv=adv[:-1] ## Remove trailing line breaks
+        except:
+            pass ## Reached a string of len 0
+        q['Advice']=adv
+
+
+        self.data['Quest'][self.questions[settings['Curr_Q']]] = q
+
+        if q['Type'] in ['KPRIM','KPR','SCQ','MCQ','FIB']:
+            result = self.mark_question(self.questions[settings['Curr_Q']]) ## Auto-Correct all the answers
+            messagebox.showinfo('Result','Das Korrekturschema wurde angewandt, um alle Teilnehmer automatisch zu bewerten.\n'+result)
+       
+        self.cakill()
+        self.refresh()
+        self.store() ## Whenever new solutions are entered, store and update the temporary file.
+
+    def cakill(self,event=None):
+        self.ca.destroy()
+
+                
+    def mark_question(self,q):
+        ## Mark one question for all respondents.
+
+        quest = self.data['Quest'][q]
+        plist = []
+
+        for r in self.data['Resp'].keys():
+            a = self.data['Resp'][r][q]['Ans']
+            points = 0
+            maxpoints = quest['Max']
+            rem = self.data['Resp'][r][q]['Remarks'] ## Retain previous remarks
+
+            if quest['Type']=='SCQ':
+                for ans in quest['Ans'].keys():
+                    if quest['Ans'][ans]['Correct'] in [1,'1'] and a[ans] in [1,'1']: ## Agreement on 1 (on any item)
+                        points = maxpoints
+                        
+            elif quest['Type']=='MCQ':
+                hits = 0
+                misses = 0
+                pstep = maxpoints/len(a.keys())
+                for ans in quest['Ans'].keys():
+                    if str(quest['Ans'][ans]['Correct']) == str(a[ans]):
+                        hits+=1
+                    else:
+                        misses+=1
+                points = (hits-misses)*pstep
+                if points<0:points=0
+
+            elif quest['Type'] in ['KPRIM','KPR']:
+                points = maxpoints
+                ded = float(points)/2
+                for ans in quest['Ans'].keys():
+                    if str(quest['Ans'][ans]['Correct']) == str(a[ans]):
+                        pass
+                    else:
+                        points-=ded
+                if points<0:points=0
+
+            elif quest['Type'] == 'FIB':
+                ac = True ## Only automatically mark if all is correct
+                rem = '' ## Remove previous remarks. Otherwise, the remarks are stacked over each other.
+
+                for ans in quest['Ans'].keys():
+                    if type(quest['Ans'][ans]['Correct']) in (str,int,float):
+                        if not str(a[ans]) == str(quest['Ans'][ans]['Correct']):
+                            ac = False
+                    elif type(quest['Ans'][ans]['Correct']) == list:
+                        try:
+                            antwort = float(a[ans])
+                            if antwort < quest['Ans'][ans]['Correct'][0] or antwort > quest['Ans'][ans]['Correct'][1]:
+                                ac = False
+                                rem+=ans+': '+str(a[ans])+' nicht im Intervall '+ str(quest['Ans'][ans]['Correct'])+'\n'
+                        except:
+                            ac = False
+                            rem+=ans+': '+str(a[ans])+' ist keine Zahl.\n'
+                    else:
+                        ac=False
+                if ac:
+                    points = maxpoints
+                else:
+                    points = '' ## Force input by corrector
+
+            else: ## Essay question
+                points = '' ## Prevent 0 points from being stored
+                pass ## No automated correction for essays
+
+            self.data['Resp'][r][q]['Remarks']=rem
+
+            if type(points)==str:
+                self.data['Resp'][r][q]['Points']=''
+            else: 
+                self.data['Resp'][r][q]['Points']=points
+                plist.append(points)
+
+        stat = desc_stat(plist)
+
+        if type(stat)==dict:
+            return "\nErgebnis:\n{4:.1f}% der Fälle bewertet\nMittelwert: {0:.2f}\nStabw: {1:.2f}\nRange: [{2:.1f}, {3:.1f}]".format(stat['M'],stat['SD'],stat['Min'],stat['Max'],stat['Share']*100)
+        else:
+            return 'Keine automatisch vergebenen Punkte'              
+
         
     def refresh(self):
         global settings
         r = self.respondents[settings['Curr_R']]
-        q = self.questions[settings['Curr_Q']]
-        curr = self.resp[r][q]
+        q = self.questions[settings['Curr_Q']]       
+        curr = self.data['Resp'][r][q]
         #print(curr)
 
-        self.cq['text'] = "  Aktuelle Frage: {0} ({1})".format(q,self.question_titles[settings['Curr_Q']])
+        tnd = str(r)+': '+self.data['Resp'][r]['Info']['Nachname']+', '+self.data['Resp'][r]['Info']['Vorname']
 
-        self.rid.set("Teilnehmer: '{0}' ({1}/{2})".format(r,settings['Curr_R']+1,len(self.respondents)))
+        self.cq['text'] = "  Aktuelle Frage: {0} ({1})".format(q,self.data['Quest'][q]['Title'])
+        self.rid.set("Teilnehmer: '{0}' ({1}/{2})".format(tnd,settings['Curr_R']+1,len(self.respondents)))
 
-        self.points.set(curr['Points'])
-        self.maxpoints.set("(Max: {0})".format(curr['Max_Points']))
+        if not curr['Points'] == None:
+            self.points.set(str(curr['Points']))
+        else:
+            self.points.set('')
+        
+        self.maxpoints.set("(Max: {0})".format(self.data['Quest'][q]['Max']))
         if type(curr['Points'])==str:
             self.pts["bg"]="#ffaa90"
         else:
@@ -361,10 +652,14 @@ class Anzeige(Frame):
 
         self.geg["state"]=NORMAL
         self.req["state"]=NORMAL
+
+        given,required = niceprint(curr['Ans'],self.data['Quest'][q])
+        
         self.geg.delete("1.0",END)
-        self.geg.insert(END,curr['Given'].replace(' // ','\n'))
+        self.geg.insert(END,given)
+        
         self.req.delete("1.0",END)
-        self.req.insert(END,curr['Correct'].replace(' // ','\n'))
+        self.req.insert(END,required)
         self.geg["state"]=DISABLED
         self.req["state"]=DISABLED
 
@@ -379,6 +674,8 @@ class Anzeige(Frame):
         else:
             self.insec.set(0)
 
+        self.update()
+
 
     def change_q(self,question):
         global settings
@@ -386,7 +683,6 @@ class Anzeige(Frame):
         self.refresh()
 
     def check_completeness(self):
-        #print(len(self.resp))
         width = 1000
         height = 500
 
@@ -433,8 +729,8 @@ class Anzeige(Frame):
             self.infobox.plot.create_text(50,(q+qstep//2),text=self.questions[qi])
             for ri in range(nr):
                 r = rt[ri]
-                item = self.resp[self.respondents[ri]][self.questions[qi]]
-                if type(item['Points'])==str:
+                item = self.data['Resp'][self.respondents[ri]][self.questions[qi]]
+                if type(item['Points']) == str or item['Points']==None:
                     col="#ff9090"
                     prob = "Noch keine Punkte"
                 elif not 'State' in item.keys():
@@ -455,7 +751,6 @@ class Anzeige(Frame):
 
 
     def check_scores(self):
-        #print(len(self.resp))
         width = 1000
         height = 500
 
@@ -502,9 +797,10 @@ class Anzeige(Frame):
             self.infobox.plot.create_text(50,(q+qstep//2),text=self.questions[qi])
             for ri in range(nr):
                 r = rt[ri]
-                item = self.resp[self.respondents[ri]][self.questions[qi]]
+                item = self.data['Resp'][self.respondents[ri]][self.questions[qi]]
+                print(item)
                 try:
-                    pscore = float(item['Points'])/item['Max_Points']
+                    pscore = float(item['Points'])/self.data['Quest'][self.questions[qi]]['Max']
                 except:
                     pscore = ''
 
@@ -526,7 +822,10 @@ class Anzeige(Frame):
         self.refresh()
 
     def change_lab(self,resp,quest,problem,event=""):
-        self.case.set("Teiln:" +str(self.respondents[resp])+' / Frage: '+str(self.questions[quest])+' ('+problem+')')
+        tn = self.respondents[resp]
+        info = self.data['Resp'][tn]['Info']
+        tnd = "{0}: {1}, {2}".format(tn,info['Nachname'],info['Vorname'])
+        self.case.set("Teiln:" +tnd+' / Frage: '+str(self.questions[quest])+' ('+problem+')')
 
 
     def store_data(self,fname=""):
@@ -536,7 +835,7 @@ class Anzeige(Frame):
 
         try:
             outf = open(fname,'w',encoding='utf-8',errors='ignore')
-            outf.write(str(self.resp))
+            outf.write(str(self.data))
             outf.close()
             messagebox.showinfo("Success","Datei erfolgreich erstellt")
         except:
@@ -567,17 +866,17 @@ class Anzeige(Frame):
             p=-99
             messagebox.showinfo("Ungültige Eingabe", "Bitte bei Punkten eine Zahl eingeben")
 
-        if accept and (p > self.resp[r][q]['Max_Points'] or p<0):
+        if accept and (p > self.data['Quest'][q]['Max'] or p<0):
             accept=False
             messagebox.showinfo("Ungültige Eingabe", "Punkte müssen zwischen 0 und Maximum liegen.")
 
-        if accept:
-            self.resp[r][q]['Points']=p
-            self.resp[r][q]['Remarks']=rem
-            self.resp[r][q]['State']=cb
+        elif accept:
+            self.data['Resp'][r][q]['Points']=p
+            self.data['Resp'][r][q]['Remarks']=rem
+            self.data['Resp'][r][q]['State']=cb
 
         outf = open(settings['J_Filename_Out'],'w',encoding='utf-8',errors='ignore')
-        outf.write(str(self.resp))
+        outf.write(str(self.data))
         outf.close()
 
         if refresher:
@@ -640,25 +939,37 @@ def baum_schreiben(tdic, einr = 0, inherit = '', spc = '    ', trunc=0, lists=Fa
 
 def scan_question(ls,line):
     scan = True
-    outdic = {'Ans':{},'Max':0}
+    outdic = {'Ans':{},'Max':0,'Question':''}
     while scan:
         line+=1
         l = ls[line][:-1].split('\t')
-        if l[2]=='maxValue':
-            try:
-                outdic['Max']=int(l[3])
-            except:
-                pass
-        elif '_' in l[2]:
-            answer = l[5]
-            try:
-                answer = eval(answer)
-            except:
-                pass
-            outdic['Ans'][l[2]]=answer
-            
-        if ls[line][0]=='Q' or ls[line][:5]=='\t\t\t\t\t':
+        if len(l)<4:
             scan = False
+        else: 
+            if l[2]=='maxValue':
+                try:
+                    outdic['Max']=float(l[3])
+                except:
+                    pass
+            elif l[2]=='':
+                q = l[4]
+                for tag in ['<p>','</p>','<em>','</em>','"']: q = q.replace(tag,'')
+                q = q.replace("<br />",'\n')
+                outdic['Question'] = q
+            elif '_' in l[2]:
+                item = l[4]
+                try:
+                    answer = eval(l[5]) ## Fetch column F if there is a solution in it.
+                except:
+                    answer = None ## Answer is missing from the excel sheet. Native CSV document.
+                    pass
+                outdic['Ans'][l[2]] = {'Item':item,'Correct':answer}
+                
+            if ls[line][0]=='Q' or ls[line][:5]=='\t\t\t\t\t': ## End of this question
+                ## This is just a security measure if someone opened and saved it in Excel.
+                scan = False
+
+    #print(baum_schreiben(outdic))
 
     return outdic
 
@@ -671,9 +982,14 @@ def read_table(lines):
 
     for l in lines[1:]:
         values = l[:-1].split('\t')
+        ## Strip Quotation marks from values and put them in the dict
         for vi in range(len(vlist)):
-            d[vlist[vi]].append(values[vi])
-
+            v = values[vi]
+            if len(v)>1:
+                if v[0] == '"': v = v[1:]
+                if v[-1] == '"': v = v[:-1]
+            ## Probably replace some shit if something occurs. (like tabs, bullet points...)
+            d[vlist[vi]].append(v)
     return d
 
 def heat_color(sval,mode='red'): ##Return a color value from a float in range [0;1]
@@ -743,128 +1059,25 @@ def heat_color(sval,mode='red'): ##Return a color value from a float in range [0
     return ccode
 
 
-
-def mark_question(q,a):
-    #print(a)
-    mark = {}
-    if q['Type']=='SCQ':
-        points = 0
-        s1 = []
-        s2 = []
-        for ans in q['Ans'].keys():
-            s1.append(str(q['Ans'][ans]))
-            s2.append(a[ans])
-            if q['Ans'][ans] in ['1',1] and a[ans] in ['1',1]:
-                points = q['Max']
-        mark = {'Correct':' - '.join(s1),
-                'Given':' - '.join(s2),
-                'Remarks':'',
-                'Points':points,
-                'Max_Points':q['Max'],
-                'Type':q['Type'],
-                'Title':q['Title']}
-
-    elif q['Type']=='MCQ':
-        points = q['Max']
-        ded = float(q['Max'])/2
-        s1 = []
-        s2 = []
-        for ans in q['Ans'].keys():
-            s1.append(str(q['Ans'][ans]))
-            s2.append(a[ans])
-            if str(q['Ans'][ans])==str(a[ans]):
-                pass
-            else:
-                points-=ded
-            if points<0:points=0
-            
-        mark = {'Correct':' - '.join(s1),
-                'Given':' - '.join(s2),
-                'Remarks':'',
-                'Points':points,
-                'Max_Points':q['Max'],
-                'Type':q['Type'],
-                'Title':q['Title']}
-
-    elif q['Type'] in ['KPRIM','KPR']:
-        points = q['Max']
-        ded = float(q['Max'])/2
-        s1 = []
-        s2 = []
-        for ans in q['Ans'].keys():
-            s1.append(str(q['Ans'][ans]))
-            s2.append(a[ans])
-            if str(q['Ans'][ans])==str(a[ans]):
-                pass
-            else:
-                points-=ded
-            if points<0:points=0
-            
-        mark = {'Correct':' '.join(s1),
-                'Given':' '.join(s2),
-                'Remarks':'',
-                'Points':points,
-                'Max_Points':q['Max'],
-                'Type':q['Type'],
-                'Title':q['Title']}
-
-    elif q['Type']=='FIB':
-        ac = True ## Only automatically mark if all is correct
-        remarks = ''
-        s1 = []
-        s2 = []
-        for ans in q['Ans'].keys():
-            s1.append(str(q['Ans'][ans]))
-            s2.append(a[ans])
-            if type(q['Ans'][ans]) in (str,int,float):
-                if not a[ans] == str(q['Ans'][ans]):
-                    ac = False
-                    remarks+=ans+': '+str(a[ans])+' nicht gleich '+ str(q['Ans'][ans])+'\n'
-                
-            elif type(q['Ans'][ans]) == list:
-                try:
-                    antwort = float(a[ans])
-                    if antwort < q['Ans'][ans][0] or  antwort > q['Ans'][ans][1]:
-                        ac = False
-                        remarks+=ans+': '+str(a[ans])+' nicht im Intervall '+ str(q['Ans'][ans])+'\n'
-                except:
-                    ac=False
-                    remarks+=ans+': '+str(a[ans])+' ist keine Zahl.\n'
-
-        if ac:
-            points = q['Max']
-        else:
-            points = ''
-
-        mark = {'Correct':' // '.join(s1),
-                'Given':' // '.join(s2),
-                'Remarks':remarks.replace('\n',' // '),
-                'Points':points,
-                'Max_Points':q['Max'],
-                'Type':q['Type'],
-                'Title':q['Title']}
-
-    else: ## for essay questions
-        s1 = []
-        s2 = []
-        for ans in q['Ans'].keys():
-            s1.append(str(q['Ans'][ans]))
-            s2.append(a[ans])
-                  
-        mark = {'Correct':' '.join(s1),
-                'Given':' '.join(s2),
-                'Remarks':'',
-                'Points':'',
-                'Max_Points':q['Max'],
-                'Type':q['Type'],
-                'Title':q['Title']}           
-    return mark
-
+def desc_stat(l):
+    numl = []
+    for e in l:
+        if type(e) in [int,float]: numl.append(float(e))
+    if len(numl)>0:
+        mean = sum(numl)/len(numl)
+        sd = 0
+        for e in numl:
+            sd+=(e-mean)**2
+        sd = (sd/len(numl))**.5
+        
+        return {'M':mean,'SD':sd,'Min':min(numl),'Max':max(numl),'Share':len(numl)/len(l)}
+    else:
+        return None
 
 
 def read_xls(fname = "Eingabe.xls"):
-    kc = 'Laufnummer'
-    add_kc = ["Vorname","Nachname","Benutzername"]
+    keys = ['Laufnummer', "Vorname","Nachname","Benutzername","Matrikelnummer"]
+    eng_keys = ['Sequence number','First name', 'Last name', 'User name','Matriculation nr.']
 
     inf = open(fname,'r',
            encoding="utf-8",errors='ignore')
@@ -874,53 +1087,107 @@ def read_xls(fname = "Eingabe.xls"):
     tstart = 1
     tend = 2
     while not ls[tend][:3] in ['\n','\t\t\t']:
-        tend+=1
+        tend+=1 ## Find end of the table of results (and beginning of questions)
 
     resp = read_table(ls[tstart:tend])
 
-    if not kc in resp.keys():
-        #print("Englische Eingabedatei")
-        resp[kc] = resp['Sequence number']
-        add_kc += ['First name', 'Last name', 'User name'] ## Zur Sicherheit alle 6
-
+    for i in range(len(keys)): ## Fetch English column names
+        if not keys[i] in resp.keys() and eng_keys[i] in resp.keys():
+            resp[keys[i]] = resp[eng_keys[i]] ## Translate all to German
+    
     #print(list(resp.keys()))
-    #print(resp[kc])
 
-    questions = {}
-    qkeys = {}
+    questions = {}  ## Dictionary of all questions and solutions
+    qkeys = {} ## Hash table to get the question from the answers identifier.
     for i in range(tend+2,len(ls)):
         l=ls[i]
         if l[0]=='Q':
             line = l.split('\t')
-            q = line[0].split(':')
+            q = line[0].split(':') ## First cell
             if len(q)==3:
                 questions[q[2]]={'Line':i,'Type':q[1]}
-                ans = scan_question(ls,i)
+                ans = scan_question(ls,i) ## Fetch remainder of the question
                 questions[q[2]]['Ans']=ans['Ans']
                 questions[q[2]]['Max']=ans['Max']
-                questions[q[2]]['Title']=line[1]
+                questions[q[2]]['Question']=ans['Question']
+                t = line[1]
+                if t[0]== '"':t = t[1:]
+                if t[-1]== '\n': t = t[:-1]
+                if t[-1]== '"': t = t[:-1]
+                questions[q[2]]['Title']=t ## Title without Quotes
+                questions[q[2]]['Advice']=''
+                
                 for a in ans['Ans'].keys():
-                    qkeys[a]=q[2]
+                    qkeys[a]=q[2] ## record keys in hash table
 
-    rd = {}
-    for i in range(len(resp[kc])):
-        r = resp[kc][i]
+    gd = {'Resp':{},'Quest':questions}
+    
+    for i in range(len(resp[keys[0]])): ## Use the sequence number
+        r = resp[keys[0]][i] ## Identifier of this person
         add = []
-        for a in add_kc:
+        for a in keys[1:]:
             try:
                 add.append(resp[a][i])
             except:
-                pass
+                pass ## If there is no name or matrikelnummer
+        gd['Resp'][r]={}
+        
         if len(add)>0:
-            r+=" ({0})".format(', '.join(add))
-        rd[r]={}
+            gd['Resp'][r]['Info'] = {'ID':" ({0})".format(', '.join(add))}
+            for k in keys:
+                gd['Resp'][r]['Info'][k] = resp[k][i]
+        
         for q in questions.keys():
             response = {}
             for a in questions[q]['Ans'].keys():
                 response[a] = resp[a][i]
-            rd[r][q] = mark_question(questions[q],response)
+                if '\\n' in response[a]:
+                    response[a] = response[a].replace('\\n','\n') ## Rectify newlines
+                    response[a] = response[a].replace('\\r','')   ## Remove carriage returns
+            gd['Resp'][r][q] = {'Ans':response,'Points':None,'Remarks':''}
+            
+    return gd
 
-    return [rd,questions]
+
+def niceprint(a,q):
+    ## Add comments on correction
+    ## Add a cleaning device to clean up special characters above 255 (Just scan and remove the suckers)
+    valid = True
+    anslist = []
+    reqlist = []
+    for ans in sorted(a.keys()):
+        anslist.append(str(a[ans]))
+        if not q['Ans'][ans]['Correct'] == None:
+            reqlist.append(str(q['Ans'][ans]['Correct']))
+
+    if q['Type'] in ['SCQ','MCQ','KPRIM','KPR']:
+        answer = '   '.join(anslist)
+        required = '   '.join(reqlist)
+    elif q['Type'] in ['FIB']:
+        answer = '\n'.join(anslist)
+        required = '\n'.join(reqlist)
+    else: ## Essay
+        answer = '\n'.join(anslist)
+        required = '\n'.join(reqlist)
+
+    if 'Advice' in q.keys(): ## Korrekturhinweis
+        if len(q['Advice'])>1:
+            required+='\n\nHinweis zur Korrektur:\n----------------------\n'+str(q['Advice'])
+
+    invalid = []
+    for c in answer+required:
+        if ord(c)>255:
+            invalid.append(c)
+    if len(invalid)>0:
+        for c in invalid:
+            answer = answer.replace(c,'<{0}>'.format(ord(c)))
+            required = required.replace(c,'<{0}>'.format(ord(c)))
+
+    if len(reqlist)==len(anslist):
+        return answer,required
+    else:
+        return answer,"No valid answer.\n\nClick here to add one"
+
 
 def create_einsicht(res,r,folder='.\\',veranstaltung='',questions=[]): ## Takes one respondent dict
     disclaimer = " ".join(["In diesem Dokument sehen Sie für alle Fragen der Prüfung",
@@ -953,22 +1220,26 @@ def create_einsicht(res,r,folder='.\\',veranstaltung='',questions=[]): ## Takes 
 
     p = 0
     mp = 0
-    for q in res[r].keys():
-        try:
-            p+=res[r][q]['Points']
-        except:
-            p=''
-        try:
-            mp+=res[r][q]['Max_Points']
-        except:
-            mp=''
+    for q in res['Resp'][r].keys():
+        if not q=='Info': ## This would be the personal information of the respondent
+            try:
+                p+=res['Resp'][r][q]['Points']
+            except:
+                p=''
+            try:
+                mp+=res['Quest'][q]['Max']
+            except:
+                mp=''
 
-    fname = folder + 'Resultate_'+ r.split(' (')[0] + '.pdf'
+    rinf = res['Resp'][r]['Info']
+    rname = "{0}, {1} ({2})".format(rinf['Nachname'],rinf['Vorname'],rinf['Matrikelnummer'])
+
+    fname = folder + 'Resultate_'+ r + '.pdf'
     pdf = FPDF(orientation='P', unit='mm', format='A4')
     pdf.add_page()
     pdf.set_font("Arial", size=16)
     pdf.set_fill_color(200,200,255)
-    header = "Dokument für die Prüfungseinsicht\n"+veranstaltung+"\nTeilnehmer*in: "+r.replace(", k.A.","")
+    header = "Dokument für die Prüfungseinsicht\n"+veranstaltung+"\nTeilnehmer*in: "+rname
     pdf.multi_cell(0, 12, txt=header,
                    align="C",border=1,fill=True)
 
@@ -999,15 +1270,18 @@ def create_einsicht(res,r,folder='.\\',veranstaltung='',questions=[]): ## Takes 
 
     qnr = 0
 
-    if questions == []:questions = sorted(res[r].keys())
+    if questions == []:questions = sorted(res['Quest'].keys())
 
 
     for q in questions:
         qnr+=1
+        given,required = niceprint(res['Resp'][r][q]['Ans'],res['Quest'][q])
         pdf.add_page()
         pdf.set_font("Arial", size=16)
         pdf.set_fill_color(220,220,255)
-        t = str(qnr)+". Aufgabe: {0} ({1})\nMaximale Punktzahl: {2} / Typ: {3}".format(q,res[r][q]['Title'],res[r][q]['Max_Points'],res[r][q]['Type'])
+        t = str(qnr)+". Aufgabe: {0} ({1})\nMaximale Punktzahl: {2} / Typ: {3}".format(q,res['Quest'][q]['Title'],
+                                                                                       res['Quest'][q]['Max'],
+                                                                                       res['Quest'][q]['Type'])
         pdf.multi_cell(0, 12, txt=t, align="C",border=1,fill=True)
 
         pdf.set_fill_color(220,250,220)
@@ -1017,7 +1291,7 @@ def create_einsicht(res,r,folder='.\\',veranstaltung='',questions=[]): ## Takes 
         pdf.multi_cell(0,6, txt="Korrekte Antwort:")
         pdf.y+=5
         pdf.set_font("Arial", size=12)
-        pdf.multi_cell(0,6,txt=res[r][q]['Correct'].replace(" // ",'\n'),fill=True,align="C",border=1)
+        pdf.multi_cell(0,6,txt=required,fill=True,align="C",border=1)
 
         pdf.set_fill_color(220,220,220)
 
@@ -1026,69 +1300,69 @@ def create_einsicht(res,r,folder='.\\',veranstaltung='',questions=[]): ## Takes 
         pdf.multi_cell(0,6, txt="Ihre Antwort:")
         pdf.y+=5
         pdf.set_font("Arial", size=12)
-        pdf.multi_cell(0,6,txt=res[r][q]['Given'].replace(" // ",'\n'),fill=True,align="C",border=1)
+        pdf.multi_cell(0,6,txt=given,fill=True,align="C",border=1)
 
-        if len(res[r][q]['Remarks'])>1:
+        if len(res['Resp'][r][q]['Remarks'])>1:
             pdf.set_font("Arial", size=14,style="B")
             pdf.y+=20
             pdf.multi_cell(0,6, txt="Bemerkungen:")
             pdf.y+=5
             pdf.set_font("Arial", size=12)
-            pdf.multi_cell(0,6,txt=res[r][q]['Remarks'].replace(" // ",'\n'),fill=False,border=1)
+            pdf.multi_cell(0,6,txt=res['Resp'][r][q]['Remarks'].replace(" // ",'\n'),fill=False,border=1)
 
         pdf.set_font("Arial", size=14,style="B")
         pdf.y+=20
-        pdf.multi_cell(0,6, txt="Sie haben "+str(res[r][q]['Points'])+" von "+str(res[r][q]['Max_Points'])+" Punkten erhalten.")
+        pdf.multi_cell(0,6, txt="Sie haben "+str(res['Resp'][r][q]['Points'])+" von "+str(res['Quest'][q]['Max'])+" Punkten erhalten.")
 
     inv = open(folder+'_inventory.txt','a',encoding="utf-8",errors="ignore")
     rnr = r.split(' ')[0]
     
     try:
         pdf.output(fname)
-        inv.write(rnr+'\t'+r+'\t'+fname+'\n')
+        inv.write(r+'\t'+rname+'\t'+fname+'\n')
         inv.close()
     except Exception as f:
         er = open(fname+"_ERROR.txt","w",encoding="utf-8",errors="ignore")
         er.write("Error. Could not export case:"+r+"\nThere must be a strange special character in this respondent's answers. Please mend manually.\n")
         er.close()
-        inv.write(rnr+'\t'+r+'\t'+str(f)+'\n')
+        inv.write(r+'\t'+rname+'\t'+str(f)+'\n')
         inv.close()
 
 
-def write_results(result = None, pdf=True, table="Punktetabelle.xls",questions=[]):
-    respondents = sorted(list(result.keys()))
-    if questions == []: questions = sorted(list(result[respondents[0]].keys()))
+def write_results(result = None, pdf=True, table="Punktetabelle.xls",questions=[],respondents=[]):
+    if respondents == []: respondents = sorted(list(result['Resp'].keys()))
+    if questions == []: questions = sorted(list(result['Quest'].keys()))
 
     outf = open(table,'w',encoding='utf-8',errors='ignore')
-    outf.write('\t'.join(['Laufnummer','Name','Total','Remarks']+questions)+'\n')
+    outf.write('\t'.join(['Laufnummer','Name','Vorname','Benutzername','Matrikelnummer','Total','Remarks']+questions)+'\n')
     for r in respondents:
-        try:
-            lf = int(r)
-            n = r
-        except:
-            try:
-                lf = int(r.split(' ')[0])
-                n = ' '.join(r.split(' ')[1:]).replace('(','').replace(')','')
-            except:
-                lf = r
-                n = r
-        lf = str(lf)
-        line = [lf,n,'','']
+        info = result['Resp'][r]['Info']
+        line = [info['Laufnummer'],
+                info['Nachname'],
+                info['Vorname'],
+                info['Benutzername'],
+                info['Matrikelnummer'],'','']
+        
         punkte = 0
         flagged = False
         for q in questions:
-            line.append(str(result[r][q]['Points']))
+            if not result['Resp'][r][q]['Points'] == None:
+                line.append(str(result['Resp'][r][q]['Points']))
+            else:
+                line.append('')
             try:
-                punkte+=result[r][q]['Points']
+                punkte+=result['Resp'][r][q]['Points']
             except:
                 punkte = ''
             try:
-                if result[r][q]['State']==1:flagged=True
+                if result['Resp'][r][q]['State']==1:flagged=True
             except:
                 pass
-            line[2]=str(punkte)
+            line[5]=str(punkte)
             if flagged:
-                line[3]='Achtung: Mindestens eine der Fragen ist noch nicht geprüft'
+                line[6]='Achtung: Mindestens eine der Fragen ist noch nicht geprüft. '
+        if punkte == '':
+            line[6]+='Noch nicht alle Punkte vergeben'
         outf.write('\t'.join(line)+'\n')
     outf.close()
 
@@ -1113,9 +1387,10 @@ settings['Curr_R']=0
 settings['Curr_Q']=0
 settings['Insecurities']=[]
 settings['E_Filename']="Eingabe2.xls"
-settings['J_Filename']="results.json"
-settings['J_Filename_Out']="results_corr.json"
+settings['J_Filename']="Korrektur.json" ## This filename could be set to some other name to store the raw input after reading an xls/csv-file.
+settings['J_Filename_Out']="Korrektur.json"
 settings['PDF']=pdf
+
 
 root = Tk()
 korr = Anzeige(root)

@@ -412,7 +412,7 @@ class Anzeige(Frame):
             self.answers = []
             r = 1
             for a in sorted(q['Ans'].keys()):
-                Label(self.ca.f,text=q['Ans'][a]['Item'],width=100,anchor=E).grid(row=r,column=0)
+                Label(self.ca.f,text=linebreaks(q['Ans'][a]['Item'],90),width=80,anchor=W, justify=LEFT).grid(row=r,column=0)
                 choice = IntVar()
                 choice.set(0)
                 if q['Ans'][a]['Correct'] == '+':
@@ -429,7 +429,7 @@ class Anzeige(Frame):
             self.answers = IntVar()
             self.answers.set(0)
             for i in range(len(items)):
-                Label(self.ca.f,text=q['Ans'][items[i]]['Item'],width=100,anchor=E).grid(row=r,column=0)
+                Label(self.ca.f,text=linebreaks(q['Ans'][a]['Item'],90),width=80,anchor=W, justify=LEFT).grid(row=r,column=0)
                 if q['Ans'][items[i]]['Correct'] == '1':
                     self.answers.set(i)
                 Radiobutton(self.ca.f,variable=self.answers,value=i).grid(row=r,column=1)
@@ -439,7 +439,7 @@ class Anzeige(Frame):
             self.answers = []
             r = 1
             for a in sorted(q['Ans'].keys()):
-                Label(self.ca.f,text=q['Ans'][a]['Item'],width=100,anchor=E).grid(row=r,column=0)
+                Label(self.ca.f,text=linebreaks(q['Ans'][a]['Item'],90),width=80,anchor=W, justify=LEFT).grid(row=r,column=0)
                 choice = IntVar()
                 choice.set(0)
                 if q['Ans'][a]['Correct'] in [1,'1']:
@@ -453,7 +453,7 @@ class Anzeige(Frame):
             self.answers = []
             r = 1
             for a in sorted(q['Ans'].keys()):
-                Label(self.ca.f,text="Gap: [{0}]:".format(q['Ans'][a]['Item']),width=100,anchor=E).grid(row=r,column=0)
+                Label(self.ca.f,text=linebreaks(q['Ans'][a]['Item'],90),width=80,anchor=W, justify=LEFT).grid(row=r,column=0)
                 e = Entry(self.ca.f,width=20)
                 e.grid(row=r,column=1)
                 if q['Ans'][a]['Correct'] == None:
@@ -957,7 +957,7 @@ def scan_question(ls,line):
                 q = q.replace("<br />",'\n')
                 outdic['Question'] = q
             elif '_' in l[2]:
-                item = l[4]
+                item = l[4] ## Here is the item
                 try:
                     answer = eval(l[5]) ## Fetch column F if there is a solution in it.
                 except:
@@ -1188,6 +1188,27 @@ def niceprint(a,q):
     else:
         return answer,"No valid answer.\n\nClick here to add one"
 
+def linebreaks(line, maxlen=100):
+    tokens = line.split(" ")
+    lines = []
+    curline = []
+    curlen = 0
+    for t in tokens:
+        if curlen + len(t) > maxlen:
+            lines.append(curline)
+            curline = [t]
+            curlen = len(t) + 1
+        else:
+            curline.append(t)
+            curlen = curlen + len(t) + 1
+    lines.append(curline)
+
+    for i in range(len(lines)):
+        lines[i] = " ".join(lines[i])
+
+    line = "\n".join(lines)
+    
+    return line
 
 def create_einsicht(res,r,folder='.\\',veranstaltung='',questions=[]): ## Takes one respondent dict
     disclaimer = " ".join(["In diesem Dokument sehen Sie für alle Fragen der Prüfung",

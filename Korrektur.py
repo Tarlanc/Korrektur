@@ -429,7 +429,7 @@ class Anzeige(Frame):
             self.answers = IntVar()
             self.answers.set(0)
             for i in range(len(items)):
-                Label(self.ca.f,text=linebreaks(q['Ans'][a]['Item'],90),width=80,anchor=W, justify=LEFT).grid(row=r,column=0)
+                Label(self.ca.f,text=linebreaks(q['Ans'][items[i]]['Item'],90),width=80,anchor=W, justify=LEFT).grid(row=r,column=0)
                 if q['Ans'][items[i]]['Correct'] == '1':
                     self.answers.set(i)
                 Radiobutton(self.ca.f,variable=self.answers,value=i).grid(row=r,column=1)

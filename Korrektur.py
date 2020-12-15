@@ -46,6 +46,7 @@ class Anzeige(Frame):
         self.m.menu.add_command(label='Sicherungskopie erstellen',command=self.store_data)        
         self.m.menu.add_command(label='Übersicht',command=self.check_completeness)
         self.m.menu.add_command(label='Punkte-Übersicht',command=self.check_scores)
+        self.m.menu.add_command(label='Plagiats-Detektor',command=self.check_plagiat)
         self.m.menu.add_command(label='Ergebnisse exportieren',command=self.export_results)
         self.m.menu.add_separator()
         self.m.menu.add_command(label='Daten hinzufügen',command=self.attach_new_data)
@@ -605,16 +606,16 @@ class Anzeige(Frame):
                 if ac:
                     points = maxpoints
                 else:
-                    points = '' ## Force input by corrector
+                    points = self.data['Resp'][r][q]['Points'] ## Force input by corrector
 
             else: ## Essay question
-                points = '' ## Prevent 0 points from being stored
+                points = self.data['Resp'][r][q]['Points'] ## Prevent 0 points from being stored
                 pass ## No automated correction for essays
 
             self.data['Resp'][r][q]['Remarks']=rem
 
             if type(points)==str:
-                self.data['Resp'][r][q]['Points']=''
+                pass
             else: 
                 self.data['Resp'][r][q]['Points']=points
                 plist.append(points)
@@ -674,6 +675,8 @@ class Anzeige(Frame):
         else:
             self.insec.set(0)
 
+        #print(self.compare("1003715389",0,2))
+
         self.update()
 
 
@@ -681,6 +684,116 @@ class Anzeige(Frame):
         global settings
         settings['Curr_Q']=self.questions.index(question)
         self.refresh()
+
+
+    def check_plagiat(self):
+        matrix = {}
+        for r in self.respondents:
+            matrix[r] = {}
+            for r2 in self.respondents:
+                matrix[r][r2] = []
+
+        nr = len(self.respondents)
+                
+        for q in self.data['Quest'].keys():
+            #print(q,self.data['Quest'][q]["Type"])
+            if self.data['Quest'][q]["Type"]=="ESSAY":
+                for i in range(1,nr):
+                    for k in range(i):
+                        agree = self.compare(q,i,k)
+                        matrix[self.respondents[i]][self.respondents[k]].append(agree)
+                        matrix[self.respondents[k]][self.respondents[i]].append(agree)
+
+        for r in self.respondents:
+            for r2 in self.respondents:
+                if len(matrix[r][r2])>0:
+                    matrix[r][r2] = sum(matrix[r][r2])/len(matrix[r][r2])
+                else:
+                    matrix[r][r2] = 0
+
+        #print(matrix)
+
+
+        width = 500
+        height = 500
+
+        if width < nr*20:
+            width = nr*20
+        if height < nr*20:
+            height = nr*20
+
+        self.case = StringVar()
+        self.case.set("Maus über ein Feld, um Informationen zu sehen")
+
+        self.infobox = Toplevel(self)
+        self.infobox.rowconfigure(1, weight=1)
+        self.infobox.columnconfigure(1, weight=1)
+        self.infobox.title("Übereinstimmung in offenen Antworten")
+        la = Label(self.infobox,textvariable=self.case)
+        la.grid(row=0,column=1)
+        self.infobox.ysc = Scrollbar(self.infobox, orient=VERTICAL)
+        self.infobox.ysc.grid(row=1,column=2,sticky=N+S)
+        self.infobox.xsc = Scrollbar(self.infobox, orient=HORIZONTAL)
+        self.infobox.xsc.grid(row=2,column=1,sticky=E+W)
+        self.infobox.plot = Canvas(self.infobox,bd=0,width=width,height=height,bg="#ffffff", scrollregion=(0, 0, width, height),
+                                   yscrollcommand=self.infobox.ysc.set, xscrollcommand=self.infobox.xsc.set)
+        self.infobox.plot.grid(row=1,column=1,sticky=N+E+S+W)
+        self.infobox.ysc["command"]=self.infobox.plot.yview
+        self.infobox.xsc["command"]=self.infobox.plot.xview
+
+        rowstep = (height-50)//nr
+        rowt = []
+        for i in range(nr):
+            rowt.append(i*rowstep+25)
+
+        colstep = (width-125)//nr
+        colt = []
+        for i in range(nr):
+            colt.append(i*colstep+100)
+
+        for i in range(nr):
+            ypos = rowt[i]
+            self.infobox.plot.create_text(50,(ypos+rowstep//2),text=self.respondents[i])
+            for k in range(nr):
+                xpos = colt[k]
+                agree = matrix[self.respondents[i]][self.respondents[k]]
+                #print(agree)
+                
+                col = heat_color(agree)
+                #print(col)
+                
+                b = self.infobox.plot.create_rectangle(xpos,ypos,
+                                                       xpos+colstep-1,
+                                                       ypos+rowstep-2,
+                                                       fill=col)
+                #self.infobox.plot.tag_bind(b, '<Button-1>', CMD(self.jump,ri,qi))
+                self.infobox.plot.tag_bind(b, '<Enter>', CMD(self.change_lab_plag,i,k,agree))
+                        
+
+    def compare(self,q,i,k, window=7):
+        a1 = '\n'.join(list(self.data["Resp"][self.respondents[i]][q]["Ans"].values())).lower()
+        a2 = '\n'.join(list(self.data["Resp"][self.respondents[k]][q]["Ans"].values())).lower()
+
+        #print(a1,a2)
+
+        d = {}
+        hit = 0
+        for i in range(len(a1)-window):
+            d[a1[i:i+window]]=0
+        for i in range(len(a2)-window):
+            try:
+                d[a2[i:i+window]]+=1
+                hit+=1
+                #print(a2[i:i+window])
+            except:
+                pass
+
+        if min(len(a1),len(a2)) >0:
+            agreement = hit / min(len(a1),len(a2))
+        else:
+            agreement = 0
+        return agreement
+            
 
     def check_completeness(self):
         width = 1000
@@ -826,6 +939,18 @@ class Anzeige(Frame):
         info = self.data['Resp'][tn]['Info']
         tnd = "{0}: {1}, {2}".format(tn,info['Nachname'],info['Vorname'])
         self.case.set("Teiln:" +tnd+' / Frage: '+str(self.questions[quest])+' ('+problem+')')
+
+
+    def change_lab_plag(self,r1,r2,agreement,event=""):
+        t1 = self.respondents[r1]
+        t2 = self.respondents[r2]
+        info1 = self.data['Resp'][t1]['Info']
+        info2 = self.data['Resp'][t2]['Info']
+        
+        tnd = "<{0}: {1}, {2}> agrees with <{3}: {4}, {5}> by {6:.2f}%".format(t1,info1['Nachname'],info1['Vorname'],
+                                                                          t2,info2['Nachname'],info2['Vorname'],
+                                                                          agreement)
+        self.case.set(tnd)
 
 
     def store_data(self,fname=""):
@@ -1134,8 +1259,14 @@ def read_xls(fname = "Eingabe.xls"):
         
         if len(add)>0:
             gd['Resp'][r]['Info'] = {'ID':" ({0})".format(', '.join(add))}
-            for k in keys:
+        else:
+            gd['Resp'][r]['Info'] = {'ID':" Anonymous"}
+
+        for k in keys:
+            try:
                 gd['Resp'][r]['Info'][k] = resp[k][i]
+            except:
+                gd['Resp'][r]['Info'][k] = "-"
         
         for q in questions.keys():
             response = {}
@@ -1143,6 +1274,7 @@ def read_xls(fname = "Eingabe.xls"):
                 response[a] = resp[a][i]
                 if '\\n' in response[a]:
                     response[a] = response[a].replace('\\n','\n') ## Rectify newlines
+                    response[a] = response[a].replace('\\t','\t') ## Rectify Tabstopps
                     response[a] = response[a].replace('\\r','')   ## Remove carriage returns
             gd['Resp'][r][q] = {'Ans':response,'Points':None,'Remarks':''}
             

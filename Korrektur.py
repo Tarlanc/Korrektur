@@ -185,8 +185,9 @@ class Anzeige(Frame):
                 for q in j['Quest']: ## If q is incomplete (misses questions), this won't matter. It just updates the ones that exist.
                     valid = True
                     for a in j['Quest'][q]['Ans'].keys():
-                        if j['Quest'][q]['Ans'][a]['Correct']==None:valid=False
+                        if j['Quest'][q]['Ans'][a]['Correct']==None:valid=False ## Only take Solutions where there is a correct solution defined. Don't overwrite others.
 
+                    print(valid, j['Quest'][q])
                     if valid:
                         self.data['Quest'][q]=j['Quest'][q]
                         self.mark_question(q)
@@ -212,10 +213,14 @@ class Anzeige(Frame):
                         for qp in r[p][q].keys(): results[p][q][qp] = r[p][q][qp]
                         counter[0]+=1
                     ## abort if there are no new points:
-                    elif type(r[p][q]['Points'])==str:
-                        pass          
+                    elif type(r[p][q]['Points']) == str or r[p][q]['Points'] == None:
+                        pass
                     ## Overwrite if there are no points yet
                     elif type(results[p][q]['Points'])==str and not type(r[p][q]['Points'])==str:
+                        for qp in overwrite: results[p][q][qp] = r[p][q][qp]
+                        counter[0]+=1
+                    ## Overwrite if there are no points yet
+                    elif results[p][q]['Points']==None and not r[p][q]['Points']==None:
                         for qp in overwrite: results[p][q][qp] = r[p][q][qp]
                         counter[0]+=1
                     ## Ignore new info if points match.
@@ -946,10 +951,13 @@ class Anzeige(Frame):
         t2 = self.respondents[r2]
         info1 = self.data['Resp'][t1]['Info']
         info2 = self.data['Resp'][t2]['Info']
-        
-        tnd = "<{0}: {1}, {2}> agrees with <{3}: {4}, {5}> by {6:.2f}%".format(t1,info1['Nachname'],info1['Vorname'],
-                                                                          t2,info2['Nachname'],info2['Vorname'],
-                                                                          agreement)
+
+        if t1==t2:
+            tnd = "<{0}: {1}, {2}>".format(t1,info1['Nachname'],info1['Vorname'])
+        else:
+            tnd = "<{0}: {1}, {2}> agrees with <{3}: {4}, {5}> by {6:.2f}%".format(t1,info1['Nachname'],info1['Vorname'],
+                                                                              t2,info2['Nachname'],info2['Vorname'],
+                                                                              agreement*100)
         self.case.set(tnd)
 
 
@@ -1406,7 +1414,7 @@ def create_einsicht(res,r,folder='.\\',veranstaltung='',questions=[]): ## Takes 
     else:
         pdf.set_font("Arial", size=12,style="B")
         pdf.y = pdf.y+5
-        pdf.multi_cell(0,6, txt="Sie haben "+str(p)+" von insgesamt "+str(mp)+" Punkten erreicht.")
+        pdf.multi_cell(0,6, txt="Sie haben {0:.1f} von insgesamt {1:.1f} Punkten erreicht.".format(p,mp))
         
 
     pdf.set_font("Arial", size=14,style="B")
@@ -1465,7 +1473,7 @@ def create_einsicht(res,r,folder='.\\',veranstaltung='',questions=[]): ## Takes 
 
         pdf.set_font("Arial", size=14,style="B")
         pdf.y+=20
-        pdf.multi_cell(0,6, txt="Sie haben "+str(res['Resp'][r][q]['Points'])+" von "+str(res['Quest'][q]['Max'])+" Punkten erhalten.")
+        pdf.multi_cell(0,6, txt="Sie haben {0:.1f} von {1:.1f} Punkten erhalten.".format(res['Resp'][r][q]['Points'],res['Quest'][q]['Max']))
 
     inv = open(folder+'_inventory.txt','a',encoding="utf-8",errors="ignore")
     rnr = r.split(' ')[0]

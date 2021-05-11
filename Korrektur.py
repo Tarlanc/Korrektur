@@ -1,10 +1,13 @@
 
 import time
 import math
+import zipfile
+import re
 from tkinter import *
 from tkinter import messagebox
 from tkinter import filedialog
 from tkinter import simpledialog
+from io import BytesIO
 
 
 try:
@@ -41,8 +44,9 @@ class Anzeige(Frame):
         self.m.menu = Menu(self.m,tearoff=0)
         self.m["menu"]=self.m.menu
         self.m.frage = Menu(self.m.menu,tearoff=0)
-        self.m.menu.add_cascade(label="Andere Frage",menu=self.m.frage)
-        self.m.menu.add_command(label='Andere Daten Laden',command=self.read_new_data)
+        self.m.laden = Menu(self.m.menu,tearoff=0)
+        self.m.menu.add_cascade(label="Zu Frage springen",menu=self.m.frage)
+        self.m.menu.add_cascade(label='Daten Laden',menu=self.m.laden)
         self.m.menu.add_command(label='Sicherungskopie erstellen',command=self.store_data)        
         self.m.menu.add_command(label='Übersicht',command=self.check_completeness)
         self.m.menu.add_command(label='Punkte-Übersicht',command=self.check_scores)
@@ -51,9 +55,12 @@ class Anzeige(Frame):
         self.m.menu.add_separator()
         self.m.menu.add_command(label='Daten hinzufügen',command=self.attach_new_data)
         self.m.menu.add_command(label='Lösungsschema hinzufügen',command=self.attach_new_corr)
+
+        self.m.laden.add_command(label="CSV/XLS (QTI1.2, vor 2021)",command=CMD(self.read_new_data,"CSV"))
+        self.m.laden.add_command(label="XLSX und ZIP (QTI2.1)",command=CMD(self.read_new_data,"XLSX"))
+        self.m.laden.add_command(label="JSON Datei",command=CMD(self.read_new_data,"JSON"))
+        self.m.laden.add_command(label="ZIP mit Resultaten (QTI2.1 Test)",command=CMD(self.read_new_data,"ZIP"))
         
-
-
         self.qbox = Frame(self)
         self.qbox.grid(row=0,column=1,columnspan=4)
 
@@ -251,15 +258,34 @@ class Anzeige(Frame):
             
         
 
-    def read_new_data(self):
+    def read_new_data(self, ltype = "JSON"):
         global settings
-        fname = filedialog.askopenfilename(**{'defaultextension':['.xls','.csv','.txt'],
-                                              'filetypes':[('Result File',['.xls','.csv','.txt']),
-                                                           ('JSON','.json'),
-                                                           ('Other','.*')]})
+        if ltype == "JSON":
+            attributes = {'defaultextension':['.json'],
+                          'filetypes':[('JSON','.json'),
+                                       ('Other','.*')]}
+        elif ltype == "CSV":
+            attributes = {'defaultextension':['.json','.csv','.txt'],
+                          'filetypes':[('Result File',['.xls','.csv','.txt']),
+                                       ('JSON','.json'),
+                                       ('Other','.*')]}
+        elif ltype == "XLSX":
+            attributes = {'defaultextension':['.xlsx'],
+                          'filetypes':[('Result File',['.xlsx']),
+                                       ('Other','.*')]}
+        elif ltype == "ZIP":
+            attributes = {'defaultextension':['.zip'],
+                          'filetypes':[('QTI2.1 results',['.zip']),
+                                       ('Other','.*')]}
+            
+        fname = filedialog.askopenfilename(**attributes)
+        
         j = None
 
-        if fname.split('.')[-1] in ['json','JSON','Json']:
+######  use ltype to really distinguish
+######  for xlsx it is a 2-step process
+
+        if ltype == "JSON": ## Pre-Used JSON File
             try:
                 inf = open(fname,'r',encoding='utf-8',errors='ignore')
                 j = eval(inf.readline())
@@ -267,7 +293,7 @@ class Anzeige(Frame):
             except:
                 print("invalid file")
                 
-        else:
+        elif ltype == "CSV": ## OLD OLAT
             try:
                 j = read_xls(fname)
             except:
@@ -277,8 +303,21 @@ class Anzeige(Frame):
                 o = open(settings['J_Filename'],'w',encoding='utf-8',errors='ignore')
                 o.write(str(j))
                 o.close()
+
+        elif ltype == "ZIP":
+            j = read_zip(fname)
+
+        elif ltype == "XLSX":
+            j = read_xlsx(fname)
+            
+
+        if type(j) == dict: ## Json constructed. Create the temporary file.
+            o = open(settings['J_Filename'],'w',encoding='utf-8',errors='ignore')
+            o.write(str(j))
+            o.close()
+            
         
-        if type(j)==dict:
+        if type(j)==dict:  ##from here, all approaches must be the same
             try:
                 self.m.frage.delete(0,len(self.questions)-1) ## Reset the question menu
             except:
@@ -294,6 +333,11 @@ class Anzeige(Frame):
                 self.m.frage.add_command(label=str(q),command=CMD(self.change_q,q))
             settings['Curr_R']=0
             settings['Curr_Q']=0
+
+            if ltype in ["XLSX","ZIP"]:
+                for q in self.questions:
+                    self.mark_question(q)
+
             self.refresh()
             
     def read_data(self): ## Initial set-up of data
@@ -441,7 +485,7 @@ class Anzeige(Frame):
                 Radiobutton(self.ca.f,variable=self.answers,value=i).grid(row=r,column=1)
                 r+=1
 
-        elif q['Type'] == 'MCQ':
+        elif q['Type'] in ['MCQ','HS']:
             self.answers = []
             r = 1
             for a in sorted(q['Ans'].keys()):
@@ -469,7 +513,8 @@ class Anzeige(Frame):
                 self.answers.append(e)
                 r+=1
 
-        else: ## It's an essay
+
+        elif q['Type'] == 'ESSAY': ## It's an essay
             self.answers = Text(self.ca.f,height=10)
             self.answers.grid(row=1,column=1,sticky=W+E)
             a = list(q['Ans'].keys())[0]
@@ -477,6 +522,21 @@ class Anzeige(Frame):
                 pass
             else:
                 self.answers.insert(END,q['Ans'][a]['Correct'])
+
+        elif q['Type'] in ['MATCH','HT']:
+            self.answers = []
+            r = 1
+            for a in sorted(q['Ans'].keys()):
+                Label(self.ca.f,text=linebreaks(q['Ans'][a]['Item'],40),width=40,anchor=W, justify=LEFT).grid(row=r,column=0)
+                choice = StringVar()
+                choice.set(q['Ans'][a]['Correct'])
+                Entry(self.ca.f,width=80,textvariable=choice).grid(row=r,column=1)
+                self.answers.append(choice)
+                r+=1
+
+        else:
+            print(q['Type'])
+            a/0
             
                 
 
@@ -504,7 +564,7 @@ class Anzeige(Frame):
                 else:
                     q['Ans'][k[i]]['Correct']='0'
 
-        elif q['Type'] == 'MCQ':
+        elif q['Type'] in ['MCQ','HS']:
             k = sorted(q['Ans'].keys())
             for i in range(len(k)):
                 if self.answers[i].get()==0:
@@ -523,6 +583,16 @@ class Anzeige(Frame):
                         pass
                 q['Ans'][k[i]]['Correct']=a
 
+        elif q['Type'] == 'ESSAY':
+            a = self.answers.get(1.0,END)
+            k = list(q['Ans'].keys())[0]
+            q['Ans'][k]['Correct']=a
+
+        elif q['Type'] in ['MATCH','HT']:
+            k = sorted(q['Ans'].keys())
+            for i in range(len(k)):
+                q['Ans'][k[i]]['Correct'] = self.answers[i].get()
+
         else:
             a = self.answers.get(1.0,END)
             k = list(q['Ans'].keys())[0]
@@ -538,7 +608,7 @@ class Anzeige(Frame):
 
         self.data['Quest'][self.questions[settings['Curr_Q']]] = q
 
-        if q['Type'] in ['KPRIM','KPR','SCQ','MCQ','FIB']:
+        if q['Type'] in ['KPRIM','KPR','SCQ','MCQ','FIB','MATCH','HS']:
             result = self.mark_question(self.questions[settings['Curr_Q']]) ## Auto-Correct all the answers
             messagebox.showinfo('Result','Das Korrekturschema wurde angewandt, um alle Teilnehmer automatisch zu bewerten.\n'+result)
        
@@ -567,7 +637,7 @@ class Anzeige(Frame):
                     if quest['Ans'][ans]['Correct'] in [1,'1'] and a[ans] in [1,'1']: ## Agreement on 1 (on any item)
                         points = maxpoints
                         
-            elif quest['Type']=='MCQ':
+            elif quest['Type'] in ['MCQ','HS']:
                 hits = 0
                 misses = 0
                 pstep = maxpoints/len(a.keys())
@@ -613,6 +683,18 @@ class Anzeige(Frame):
                 else:
                     points = self.data['Resp'][r][q]['Points'] ## Force input by corrector
 
+            elif quest['Type'] == 'MATCH':
+                points = 0
+                ded = float(maxpoints)/len(quest['Ans'].keys())
+                for ans in quest['Ans'].keys():
+                    if str(quest['Ans'][ans]['Correct']) == str(a[ans]):
+                        points+=ded
+                    else:
+                        points-=ded
+                if points<0:points=0
+                if not points==maxpoints: points=self.data['Resp'][r][q]['Points'] ## Prevent 0 points from being stored if something is wrong.
+                
+
             else: ## Essay question
                 points = self.data['Resp'][r][q]['Points'] ## Prevent 0 points from being stored
                 pass ## No automated correction for essays
@@ -639,6 +721,7 @@ class Anzeige(Frame):
         q = self.questions[settings['Curr_Q']]       
         curr = self.data['Resp'][r][q]
         #print(curr)
+        #print(baum_schreiben(self.data))
 
         tnd = str(r)+': '+self.data['Resp'][r]['Info']['Nachname']+', '+self.data['Resp'][r]['Info']['Vorname']
 
@@ -837,14 +920,15 @@ class Anzeige(Frame):
         for i in range(nq):
             qt.append(i*qstep+25)
 
-        rstep = (width-125)//nr
+        xpadding = 175
+        rstep = (width-xpadding-25)//nr
         rt = []
         for i in range(nr):
-            rt.append(i*rstep+100)
+            rt.append(i*rstep+xpadding)
 
         for qi in range(nq):
             q = qt[qi]
-            self.infobox.plot.create_text(50,(q+qstep//2),text=self.questions[qi])
+            self.infobox.plot.create_text(7,(q+qstep//2),text=self.questions[qi],anchor=W)
             for ri in range(nr):
                 r = rt[ri]
                 item = self.data['Resp'][self.respondents[ri]][self.questions[qi]]
@@ -1207,6 +1291,743 @@ def desc_stat(l):
     else:
         return None
 
+def grab(s,start,end):
+    s1 = s.split(start)[1:]
+    #print(type(s1),len(s1))
+    s2 = [substr.split(end)[0] for substr in s1]
+    if len(s2)==1: s2 = s2[0]
+    #print(s2)
+    return s2
+
+def striptags(s):
+    for n in ['<p>','<div>','</div>','<em>','</em>','\n']: s = s.replace(n,"")
+    for n in ['</p>','<br/>']: s = s.replace(n,"\n")
+    while '  ' in s: s=s.replace('  ',' ')
+    if s[0]==' ':s = s[1:]
+    if s[-1]==' ':s=s[:-1]
+    if s[-1]=='\n':s=s[:-1]
+    return s
+
+def gather(zfile, questions):
+    questiondic = {}
+    for i in range(len(questions)):
+        qf = zfile.open(questions[i]['XML'])
+        lin = qf.readlines()
+        qf.close()
+        content = "\n".join([l.decode("utf-8") for l in lin])
+##        print('\n\n--------------------------------\n',questions[i]['XML'],'\n')
+##        print('Question Number: '+str(i+1))
+        xname = questions[i]['XML']
+        if '/' in xname:
+            xname = xname[xname.rfind("/")+1:]
+
+        ### Single Choice
+
+        if xname[:2].lower() == 'sc':
+            qtype = "SC"
+            qtitle = grab(content,' title="','"')
+            if type(qtitle) == list:
+                qtitle = qtitle[0]
+            qcont = grab(content,"<itemBody>","</itemBody>")
+            qend = qcont.find("<choiceInter")
+            qcont, qitems = qcont[:qend], qcont[qend:]
+            qcont = striptags(qcont)
+            qresp = grab(content,"<correctResponse>","</correctResponse")
+            qresp = grab(qresp,'<value>','</value>')
+
+            scores = grab(content,'<outcomeDeclaration','</outcomeDeclaration>')
+            mscore = ''
+            for s in scores:
+                if 'MAXSCORE' in s and mscore=='':
+                    try:
+                        mscore = float(grab(s,'<value>','</value>'))
+                    except:
+                        pass
+           
+            items = grab(qitems,'<simpleChoice','</simpleChoice>')
+            rorder = []
+            rdic = {}
+            for qi in items:
+                rid = grab(qi,'identifier="','"')
+                rc = grab(qi,'<p>','</p>')
+                if type(rc)==list:rc='\n'.join(rc)
+                rdic[rid]=rc
+                rorder.append(rid)
+
+            
+            qkey = f"Question #{i+1} ({qtype}): {qtitle}"
+
+            questiondic[qkey] = {'Advice':'',
+                                 'Ans':{},
+                                 'Line':questions[i]['XML'],
+                                 'Max':mscore,
+                                 'Question':qcont,
+                                 'Title':qtitle,
+                                 'Type':'SCQ'}
+            for ai in range(len(rorder)):
+                alab = f"{i+1}_C{ai}"
+                c = 0
+                if rorder[ai] == qresp: c=1
+                questiondic[qkey]['Ans'][alab]={'Correct':c,
+                                                'Item':rdic[rorder[ai]]}
+
+        ### Multiple Choice
+
+        elif xname[:2].lower() == 'mc':
+            qtype = "MC"
+            qtitle = grab(content,' title="','"')
+            qcont = grab(content,"<itemBody>","</itemBody>")
+            qend = qcont.find("<choiceInter")
+            qcont, qitems = qcont[:qend], qcont[qend:]
+            qcont = striptags(qcont)
+            qresp = grab(content,"<correctResponse>","</correctResponse")
+            qresp = grab(qresp,'<value>','</value>')
+            if type(qresp)==str:qresp=[qresp]
+
+            scores = grab(content,'<outcomeDeclaration','</outcomeDeclaration>')
+            mscore = ''
+            for s in scores:
+                if 'MAXSCORE' in s and mscore=='':
+                    try:
+                        mscore = float(grab(s,'<value>','</value>'))
+                    except:
+                        pass
+
+            items = grab(qitems,'<simpleChoice','</simpleChoice>')
+            rorder = []
+            rdic = {}
+            for qi in items:
+                rid = grab(qi,'identifier="','"')
+                rc = grab(qi,'<p>','</p>')
+                if type(rc)==list:rc='\n'.join(rc)
+                rdic[rid]=rc
+                rorder.append(rid)
+
+            qkey = f"Question #{i+1} ({qtype}): {qtitle}"
+
+            questiondic[qkey] = {'Advice':'',
+                                 'Ans':{},
+                                 'Line':questions[i]['XML'],
+                                 'Max':mscore,
+                                 'Question':qcont,
+                                 'Title':qtitle,
+                                 'Type':'MCQ'}
+            for ai in range(len(rorder)):
+                alab = f"{i+1}_C{ai}"
+                c = 0
+                if rorder[ai] in qresp: c=1
+                questiondic[qkey]['Ans'][alab]={'Correct':c,
+                                                'Item':rdic[rorder[ai]]}
+
+        ### HOTSPOT
+
+        elif xname[:7].lower() == 'hotspot':
+            qtype = "HS"
+            qtitle = grab(content,' title="','"')
+            qcont = grab(content,"<itemBody>","</itemBody>")
+            qend = qcont.find("<hotspotInter")
+            qcont, qitems = qcont[:qend], qcont[qend:]
+            qcont = striptags(qcont)
+            qresp = grab(content,"<correctResponse>","</correctResponse")
+            qresp = grab(qresp,'<value>','</value>')
+            if type(qresp)==str:qresp=[qresp]
+
+            scores = grab(content,'<outcomeDeclaration','</outcomeDeclaration>')
+            mscore = ''
+            for s in scores:
+                if 'MAXSCORE' in s and mscore=='':
+                    try:
+                        mscore = float(grab(s,'<value>','</value>'))
+                    except:
+                        pass
+
+            items = grab(qitems,'<hotspotChoice','/>')
+            rorder = []
+            rdic = {}
+            for qi in items:
+                rid = grab(qi,'identifier="','"')
+                rc = grab(qi,'coords="','"')
+                rt = grab(qi,'shape="','"')
+                rc = f"{rt} ({rc})"
+                if type(rc)==list:rc='\n'.join(rc)
+                rdic[rid]=rc
+                rorder.append(rid)
+
+            qkey = f"Question #{i+1} ({qtype}): {qtitle}"
+
+            questiondic[qkey] = {'Advice':'',
+                                 'Ans':{},
+                                 'Line':questions[i]['XML'],
+                                 'Max':mscore,
+                                 'Question':qcont,
+                                 'Title':qtitle,
+                                 'Type':'HS'}
+            for ai in range(len(rorder)):
+                alab = f"{i+1}_C{ai}"
+                c = 0
+                if rorder[ai] in qresp: c=1
+                questiondic[qkey]['Ans'][alab]={'Correct':c,
+                                                'Item':rdic[rorder[ai]]}
+
+
+        ### KPRIM
+
+        elif xname[:3].lower() == 'kpr':
+            qtype = "KPRIM"
+            qtitle = grab(content,' title="','"')
+            qcont = grab(content,"<itemBody>","</itemBody>")
+            qend = qcont.find("<matchInter")
+            qcont, qitems = qcont[:qend], qcont[qend:]
+            qcont = striptags(qcont)
+            qresp = grab(content,"<correctResponse>","</correctResponse")
+            qresp = grab(qresp,'<value>','</value>')
+            qresp = dict([tuple(r.split(' ')) for r in qresp])
+
+            scores = grab(content,'<outcomeDeclaration','</outcomeDeclaration>')
+            mscore = ''
+            for s in scores:
+                if 'MAXSCORE' in s and mscore=='':
+                    try:
+                        mscore = float(grab(s,'<value>','</value>'))
+                    except:
+                        pass
+
+
+            items = grab(qitems,'<simpleAssociableChoice','</simpleAssociableChoice>')
+            rorder = []
+            rdic = {}
+            for qi in items[:4]:
+                rid = grab(qi,'identifier="','"')
+                rc = grab(qi,'<p>','</p>')
+                if type(rc)==list:rc='\n'.join(rc)
+                rdic[rid]=rc
+                rorder.append(rid)
+
+            #print(rdic,rorder)
+
+            qkey = f"Question #{i+1} ({qtype}): {qtitle}"
+
+            questiondic[qkey] = {'Advice':'',
+                                 'Ans':{},
+                                 'Line':questions[i]['XML'],
+                                 'Max':mscore,
+                                 'Question':qcont,
+                                 'Title':qtitle,
+                                 'Type':'KPRIM'}
+            for ai in range(len(rorder)):
+                alab = f"{i+1}_KP{ai+1}"
+                c = '-'
+                if qresp[rorder[ai]] =='correct': c = '+'
+                questiondic[qkey]['Ans'][alab]={'Correct':c,
+                                                'Item':rdic[rorder[ai]]}
+            
+
+        ### Lückentext
+
+        elif xname[:3].lower() == 'fib':
+            qtype = 'FIB'
+            qtitle = grab(content,' title="','"')
+            qcont = grab(content,"<itemBody>","</itemBody>")
+            qresp = grab(content,"<responseDeclaration","</responseDeclaration")
+            #print('\n'.join(qresp))
+
+            blanks = re.findall('<textEntry.*?/>',qcont)
+            rorder = []
+
+            for blank in blanks:
+                qcont = qcont.replace(blank,"[...]")
+                rorder.append(grab(blank,'Identifier="','"'))
+            qcont = striptags(qcont)
+
+            scores = grab(content,'<outcomeDeclaration','</outcomeDeclaration>')
+            mscore = ''
+            for s in scores:
+                if 'MAXSCORE' in s and mscore=='':
+                    try:
+                        mscore = float(grab(s,'<value>','</value>'))
+                    except:
+                        pass
+                    
+            rdic = {}
+            for r in qresp:
+                rid = grab(r,'identifier="','"')
+                rc = grab(r,'<value>','</value>')
+                rdic[rid] = rc
+
+            qkey = f"Question #{i+1} ({qtype}): {qtitle}"
+
+            questiondic[qkey] = {'Advice':'',
+                                 'Ans':{},
+                                 'Line':questions[i]['XML'],
+                                 'Max':mscore,
+                                 'Question':qcont,
+                                 'Title':qtitle,
+                                 'Type':'FIB'}
+            for ai in range(len(rorder)):
+                alab = f"{i+1}_FIB{ai+1}"
+                questiondic[qkey]['Ans'][alab]={'Correct':rdic[rorder[ai]],
+                                                'Item':''}
+
+        ### HOTTEXT
+
+
+        elif xname[:7].lower() == 'hottext':
+            qtype = 'HT'
+            qtitle = grab(content,' title="','"')
+            qcont = grab(content,"<itemBody>","</itemBody>")
+            qresp = grab(content,"<responseDeclaration","</responseDeclaration")
+            qresp = grab(qresp,"<value>","</value>")
+            if type(qresp)==str:qresp=[qresp]
+            qcont = grab(qcont,'<p>','</p>')
+            if type(qcont)==list:
+                qcont='\n'.join(qcont)
+            #print('\n'.join(qresp))
+
+            blanks = re.findall('<hottext .*?/hottext>',qcont)
+            rorder = []
+
+            #print("Blanks",blanks)
+
+            for blank in blanks:
+                qcont = qcont.replace(blank," [...] ")
+                rorder.append(grab(blank,'identifier="','"'))
+            qcont = striptags(qcont)
+
+##            print(rorder)
+##            print(qcont)
+
+            scores = grab(content,'<outcomeDeclaration','</outcomeDeclaration>')
+            mscore = ''
+            for s in scores:
+                if 'MAXSCORE' in s and mscore=='':
+                    try:
+                        mscore = float(grab(s,'<value>','</value>'))
+                    except:
+                        pass
+
+            #print(mscore)
+                    
+            rdic = {}
+            for r in blanks:
+                #print(r)
+                rid = grab(r,'identifier="','"')
+                rc = grab(r,'>','<')[0]
+                rdic[rid] = rc
+                #print(rid,rc)
+
+            qkey = f"Question #{i+1} ({qtype}): {qtitle}"
+
+            questiondic[qkey] = {'Advice':'',
+                                 'Ans':{},
+                                 'Line':questions[i]['XML'],
+                                 'Max':mscore,
+                                 'Question':qcont,
+                                 'Title':qtitle,
+                                 'Type':'HT'}
+            #print(qresp)
+            for ai in range(len(rorder)):
+                alab = f"{i+1}_HT{ai+1}"
+                c = ''
+                if rorder[ai] in qresp: c = rdic[rorder[ai]]
+                questiondic[qkey]['Ans'][alab]={'Correct':c,
+                                                'Item':rdic[rorder[ai]]}
+
+
+
+        #### Some kind of matching (Matrix, Drag&Drop)
+
+        elif xname[:5].lower() == 'match':
+            qtype = 'MATCH'
+            qtitle = grab(content,' title="','"')
+            qcont = grab(content,"<itemBody>","</itemBody>")
+            qend = qcont.find("<matchInter")
+            qcont, qitems = qcont[:qend], qcont[qend:]
+            qcont = striptags(qcont)
+            qresp = grab(content,"<correctResponse>","</correctResponse")
+            qresp = grab(qresp,'<value>','</value>')
+            qitems = grab(qitems,"<simpleMatchSet","</simpleMatchSet")
+            if type(qresp)==str:qresp=[qresp]
+##            print(qresp)
+##            print(qitems)
+##            print(len(qitems))
+
+            scores = grab(content,'<outcomeDeclaration','</outcomeDeclaration>')
+            mscore = ''
+            for s in scores:
+                if 'MAXSCORE' in s and mscore=='':
+                    try:
+                        mscore = float(grab(s,'<value>','</value>'))
+                    except:
+                        pass
+            #print(mscore)
+
+            items1 = grab(qitems[0],'<simpleAssociableChoice','</simpleAssociableChoice>')
+            items2 = grab(qitems[1],'<simpleAssociableChoice','</simpleAssociableChoice>')
+##            print('1: ',items1)
+##            print('2: ',items2)
+            rorder = []
+            rdic = {}
+            for qi in items2:
+                rid = grab(qi,'identifier="','"')
+                rc = grab(qi,'<p>','</p>')
+                #print(rid,rc)
+                if type(rc)==list:rc='\n'.join(rc)
+                rdic[rid]=rc
+                rorder.append(rid)
+
+            qcont += '\n\nOptions:\n'
+            for qi in items1:
+                rid = grab(qi,'identifier="','"')
+                rc = grab(qi,'<p>','</p>')
+                qcont+=f'\n - {rid}: {rc}'
+
+            qkey = f"Question #{i+1} ({qtype}): {qtitle}"
+
+            questiondic[qkey] = {'Advice':'',
+                                 'Ans':{},
+                                 'Line':questions[i]['XML'],
+                                 'Max':mscore,
+                                 'Question':qcont,
+                                 'Title':qtitle,
+                                 'Type':'MATCH'}
+            for ai in range(len(rorder)):
+                alab = f"{i+1}_K{ai+1}"
+                c = ''
+                sol =[]
+                for qr in qresp:
+                    if rorder[ai] in qr:
+                        sol.append(qr.split(' ')[0])
+                    c = ', '.join(sol)
+                questiondic[qkey]['Ans'][alab]={'Correct':c,
+                                                'Item':rdic[rorder[ai]]}
+
+
+        ### ESSAY
+
+
+        elif xname[:5].lower() == 'essay':
+            qtype = 'ESSAY'
+            qtitle = grab(content,' title="','"')
+            qcont = grab(content,"<itemBody>","</itemBody>")
+            qcont = grab(qcont,'<p>','</p>')
+            if type(qcont)==list:qcont = '\n'.join(qcont)
+            qcont = striptags(qcont)
+            #print(qcont)
+
+            scores = grab(content,'<outcomeDeclaration','</outcomeDeclaration>')
+            mscore = ''
+            for s in scores:
+                if 'MAXSCORE' in s and mscore=='':
+                    try:
+                        mscore = float(grab(s,'<value>','</value>'))
+                    except:
+                        pass
+            #print(mscore)
+
+            qkey = f"Question #{i+1} ({qtype}): {qtitle}"
+
+            questiondic[qkey] = {'Advice':'',
+                                 'Ans':{f"{i+1}_U1":{'Correct':'Please click to enter a solution',
+                                                     'Item':'Text'}},
+                                 'Line':questions[i]['XML'],
+                                 'Max':mscore,
+                                 'Question':qcont,
+                                 'Title':qtitle,
+                                 'Type':'ESSAY'}
+
+        ### DRAWING
+
+        elif xname[:5].lower() == 'drawi':
+            qtype = 'DRAW'
+            qtitle = grab(content,' title="','"')
+            qcont = grab(content,"<itemBody>","</itemBody>")
+            qcont = grab(qcont,'<p>','</p>')
+            if type(qcont)==list:qcont = '\n'.join(qcont)
+            qcont = striptags(qcont)
+            #print(qcont)
+
+            scores = grab(content,'<outcomeDeclaration','</outcomeDeclaration>')
+            mscore = ''
+            for s in scores:
+                if 'MAXSCORE' in s and mscore=='':
+                    try:
+                        mscore = float(grab(s,'<value>','</value>'))
+                    except:
+                        pass
+            #print(mscore)
+
+            qkey = f"Question #{i+1} ({qtype}): {qtitle}"
+
+            questiondic[qkey] = {'Advice':'',
+                                 'Ans':{f"{i+1}_U1":{'Correct':'Can not handle graphics. Refer to external material',
+                                                     'Item':'Text'}},
+                                 'Line':questions[i]['XML'],
+                                 'Max':mscore,
+                                 'Question':qcont,
+                                 'Title':qtitle,
+                                 'Type':'DRAW'}
+
+        else:
+
+            print("ERROR: INVALID: ",xname)
+
+    #print('\n'.join(list(questiondic.keys())))
+
+    return questiondic
+        
+def parsetable(xml,refs):
+    rows = grab(xml,'<row','</row>')
+    #print(len(rows))
+    ## Create an empty dataset
+    cols = []
+    for first in ['','A','B','C','D','E','F','G','H','I','J','K','L','M']:
+        for last in [chr(n) for n in range(65,91)]:
+            cols.append(first+last)
+    data = {}
+    for c in cols:
+        data[c] = (len(rows)+1)*['']
+
+    limit = 50
+    i = 0
+
+    bcols = dict(list(zip(cols,[False]*len(cols))))
+    
+    for r in rows:
+        cells = grab(r,'<c','</c>')
+        for c in cells:
+            name = grab(c, 'r="','"')
+            col = ''
+            row = ''
+            for ch in name:
+                if ch.isalpha():
+                    col+=ch
+                else:
+                    row+=ch
+            sval = False
+            try:
+                bcols[col]=True
+            except:
+                print("Column not found: ",col)
+            if 't="s"' in c: sval = True ## Contains string value
+            val = grab(c,'<v>','</v>')
+            try:
+                val = int(val)
+                if sval:
+                    val = refs[val]
+            except:
+                try:
+                    val = float(val)
+                except:
+                    pass
+                
+            try:
+                data[col][int(row)] = val
+            except:
+                print('ERROR grabbing cell in parsetable',name,val,col,row)
+
+    cn = len(cols)-1
+    beef = False
+    while not cn == 0 and not beef:
+        if bcols[cols[cn]] == False:
+            del data[cols[cn]]
+            cn = cn-1
+        else:
+            beef = True
+    return data
+
+
+def qti_reader(fname):
+    z = zipfile.ZipFile(fname,mode="r")
+    files = z.namelist()
+
+    testfile = ''
+    for f in files:
+        if f[:4] == "test": testfile=f
+
+    tf = z.open(testfile)
+    lin = tf.readlines()
+    tf.close()
+
+    content = "\n".join([l.decode("utf-8") for l in lin])
+    q1 = content.split("<assessmentItemRef")[1:]
+    q2 = [q.split("/>")[0] for q in q1]
+
+    questions = []
+    for i in range(len(q2)):
+        ident = q2[i].split('identifier="')[1].split('"')[0]
+        fname = q2[i].split('href="')[1].split('"')[0]
+        questions.append({"Idx":i+1, "Ident":ident, "XML":fname})
+
+    outdic = gather(z,questions)
+    return outdic    
+
+def xparse(fname):
+    z = zipfile.ZipFile(fname,mode="r")
+    files = z.namelist()
+    #print(files)
+
+    sref = 'xl/sharedStrings.xml'
+    sheet = 'xl/worksheets/sheet1.xml'
+
+    sr = z.open(sref)
+    lin = sr.readlines()
+    sr.close()
+    content = "\n".join([l.decode("utf-8") for l in lin])
+    refs = grab(content,'<si>','</si>')
+    refs = [r.replace('<t>','').replace('</t>','') for r in refs]
+    
+    sr = z.open(sheet)
+    lin = sr.readlines()
+    sr.close()
+    content = "\n".join([l.decode("utf-8") for l in lin])
+
+    data = parsetable(content,refs)
+
+    outdata = {}
+    num = 1
+    for v in data.keys():
+        if data[v][2] == '':
+            vname = f"Var_{num}"
+            num+=1
+        else:
+            vname = data[v][2]
+        outdata[vname] = data[v][3:]
+
+    #print(outdata)
+
+    return outdata
+      
+def create_gd(resp,questions, keys = ['Laufnummer', "Vorname","Nachname","Benutzername","Matrikelnummer"]):
+    gd = {'Resp':{},'Quest':questions}
+    
+    for i in range(len(resp[keys[0]])): ## Use the sequence number
+        r = resp[keys[0]][i] ## Identifier of this person
+        add = []
+        for a in keys[1:]:
+            try:
+                add.append(str(resp[a][i]))
+            except:
+                pass ## If there is no name or matrikelnummer
+        gd['Resp'][r]={}
+        
+        if len(add)>0:
+            gd['Resp'][r]['Info'] = {'ID':" ({0})".format(', '.join(add))}
+        else:
+            gd['Resp'][r]['Info'] = {'ID':" Anonymous"}
+
+        for k in keys:
+            try:
+                gd['Resp'][r]['Info'][k] = resp[k][i]
+            except:
+                gd['Resp'][r]['Info'][k] = "-"
+        
+        for q in questions.keys():
+            response = {}
+            for a in questions[q]['Ans'].keys():
+                response[a] = str(resp[a][i])
+                #print(response[a])
+                if '\\n' in response[a]:
+                    response[a] = response[a].replace('\\n','\n') ## Rectify newlines
+                    response[a] = response[a].replace('\\t','\t') ## Rectify Tabstopps
+                    response[a] = response[a].replace('\\r','')   ## Remove carriage returns
+            gd['Resp'][r][q] = {'Ans':response,'Points':None,'Remarks':''}
+            
+    return gd
+
+def read_zip(fname):
+    ## Reading a QTI2.1 result ZIP
+    z = zipfile.ZipFile(fname,mode="r")
+    files = z.namelist()
+
+    testfile = ''
+    xfile = ''
+    for f in files:
+        fin = re.findall("Resultate.*test.*test",f)
+        if len(fin)>0:
+            testfile = f
+        if f[-5:]=='.xlsx':
+            xfile=f
+
+    tf = z.open(testfile)
+    lin = tf.readlines()
+    tf.close()
+    path = testfile[:testfile.rfind('/')+1]
+
+    content = "\n".join([l.decode("utf-8") for l in lin])
+    q1 = content.split("<assessmentItemRef")[1:]
+    q2 = [q.split("/>")[0] for q in q1]
+
+    questions = []
+    for i in range(len(q2)):
+        ident = q2[i].split('identifier="')[1].split('"')[0]
+        fname = q2[i].split('href="')[1].split('"')[0]
+        questions.append({"Idx":i+1, "Ident":ident, "XML":path+fname})
+
+    q = gather(z,questions)
+
+    #print(baum_schreiben(q))
+
+    ## Now load the XLSX with all answers:
+    
+    xcontents = BytesIO(z.read(xfile)) 
+    r, k = read_xlsx(xcontents,False)
+    #print(baum_schreiben(r))
+    #print(k)
+    fulldata = create_gd(r,q,k)
+    
+    return fulldata
+    
+
+def read_xlsx(fname="Eingabe.xlsx",addzip=True):
+    keys = ['Laufnummer', "Vorname","Nachname","Benutzername","Matrikelnummer"]
+    eng_keys = ['Sequence number','First name', 'Last name', 'User name','Matriculation nr.']
+
+    resp = xparse(fname)
+    #print(resp.keys())
+    
+    for i in range(len(keys)): ## Fetch English column names
+        if not keys[i] in resp.keys() and eng_keys[i] in resp.keys():
+            resp[keys[i]] = resp[eng_keys[i]] ## Translate all to German
+
+    ## Replace x and '' by 1 and 0
+
+    for v in resp.keys():
+        if '_C' in v:
+            nc = []
+            for i in range(len(resp[v])):
+                if resp[v][i]=='x':
+                    nc.append(1)
+                elif resp[v][i]=='':
+                    nc.append(0)
+                else:
+                    print(f"The column {v} is not a dummy column. It contains other values than 'x' and ''")
+            if len(nc)==len(resp[v]):resp[v] = list(nc)
+
+    msg = f"Daten von {len(resp[v])} Befragten erfolgreich geladen."
+
+    if addzip:
+        msg+= "\n\nIn der Datei waren keine Informationen zum Inhalt der Fragen vorhanden.\n"
+        msg+= "Für die Weiterarbeit muss die Information über die Inhalte der Prüfung geladen werden.\n"
+        msg+= "\nDie Prüfungsinformationen sind in einer ZIP-Datei, die als qti-Export gekennzeichnet ist.\n"
+        msg+= "Bitte laden Sie jetzt diese Datei, die zu dieser Prüfung gehört."
+        
+        messagebox.showinfo("Zweiter Schritt",msg)
+
+                
+        attributes = {'defaultextension':['.zip'],
+                      'filetypes':[('QTI2.1 dump',['.zip']),
+                                   ('Other','.*')]}      
+        fname = filedialog.askopenfilename(**attributes)
+
+        questions = qti_reader(fname)
+
+        fulldata = create_gd(resp,questions,keys)
+            
+        return fulldata
+    else:
+        return resp, keys
+    
+
 
 def read_xls(fname = "Eingabe.xls"):
     keys = ['Laufnummer', "Vorname","Nachname","Benutzername","Matrikelnummer"]
@@ -1253,40 +2074,8 @@ def read_xls(fname = "Eingabe.xls"):
                 for a in ans['Ans'].keys():
                     qkeys[a]=q[2] ## record keys in hash table
 
-    gd = {'Resp':{},'Quest':questions}
-    
-    for i in range(len(resp[keys[0]])): ## Use the sequence number
-        r = resp[keys[0]][i] ## Identifier of this person
-        add = []
-        for a in keys[1:]:
-            try:
-                add.append(resp[a][i])
-            except:
-                pass ## If there is no name or matrikelnummer
-        gd['Resp'][r]={}
-        
-        if len(add)>0:
-            gd['Resp'][r]['Info'] = {'ID':" ({0})".format(', '.join(add))}
-        else:
-            gd['Resp'][r]['Info'] = {'ID':" Anonymous"}
-
-        for k in keys:
-            try:
-                gd['Resp'][r]['Info'][k] = resp[k][i]
-            except:
-                gd['Resp'][r]['Info'][k] = "-"
-        
-        for q in questions.keys():
-            response = {}
-            for a in questions[q]['Ans'].keys():
-                response[a] = resp[a][i]
-                if '\\n' in response[a]:
-                    response[a] = response[a].replace('\\n','\n') ## Rectify newlines
-                    response[a] = response[a].replace('\\t','\t') ## Rectify Tabstopps
-                    response[a] = response[a].replace('\\r','')   ## Remove carriage returns
-            gd['Resp'][r][q] = {'Ans':response,'Points':None,'Remarks':''}
-            
-    return gd
+    fulldata = create_gd(resp,questions,keys)
+    return fulldata
 
 
 def niceprint(a,q):

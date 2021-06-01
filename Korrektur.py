@@ -1326,8 +1326,7 @@ def gather(zfile, questions):
         if xname[:2].lower() == 'sc':
             qtype = "SC"
             qtitle = grab(content,' title="','"')
-            if type(qtitle) == list:
-                qtitle = qtitle[0]
+            if type(qtitle) == list: qtitle = qtitle[0]
             qcont = grab(content,"<itemBody>","</itemBody>")
             qend = qcont.find("<choiceInter")
             qcont, qitems = qcont[:qend], qcont[qend:]
@@ -1376,6 +1375,7 @@ def gather(zfile, questions):
         elif xname[:2].lower() == 'mc':
             qtype = "MC"
             qtitle = grab(content,' title="','"')
+            if type(qtitle) == list: qtitle = qtitle[0]
             qcont = grab(content,"<itemBody>","</itemBody>")
             qend = qcont.find("<choiceInter")
             qcont, qitems = qcont[:qend], qcont[qend:]
@@ -1424,6 +1424,7 @@ def gather(zfile, questions):
         elif xname[:7].lower() == 'hotspot':
             qtype = "HS"
             qtitle = grab(content,' title="','"')
+            if type(qtitle) == list: qtitle = qtitle[0]
             qcont = grab(content,"<itemBody>","</itemBody>")
             qend = qcont.find("<hotspotInter")
             qcont, qitems = qcont[:qend], qcont[qend:]
@@ -1475,6 +1476,7 @@ def gather(zfile, questions):
         elif xname[:3].lower() == 'kpr':
             qtype = "KPRIM"
             qtitle = grab(content,' title="','"')
+            if type(qtitle) == list: qtitle = qtitle[0]
             qcont = grab(content,"<itemBody>","</itemBody>")
             qend = qcont.find("<matchInter")
             qcont, qitems = qcont[:qend], qcont[qend:]
@@ -1527,6 +1529,7 @@ def gather(zfile, questions):
         elif xname[:3].lower() == 'fib':
             qtype = 'FIB'
             qtitle = grab(content,' title="','"')
+            if type(qtitle) == list: qtitle = qtitle[0]
             qcont = grab(content,"<itemBody>","</itemBody>")
             qresp = grab(content,"<responseDeclaration","</responseDeclaration")
             #print('\n'.join(qresp))
@@ -1551,6 +1554,8 @@ def gather(zfile, questions):
             rdic = {}
             for r in qresp:
                 rid = grab(r,'identifier="','"')
+                if len(rid)==0:rid='<>'
+                if type(rid)==list:rid=rid[0]
                 rc = grab(r,'<value>','</value>')
                 rdic[rid] = rc
 
@@ -1565,8 +1570,12 @@ def gather(zfile, questions):
                                  'Type':'FIB'}
             for ai in range(len(rorder)):
                 alab = f"{i+1}_FIB{ai+1}"
-                questiondic[qkey]['Ans'][alab]={'Correct':rdic[rorder[ai]],
-                                                'Item':''}
+                try:
+                    questiondic[qkey]['Ans'][alab]={'Correct':rdic[rorder[ai]],
+                                                    'Item':''}
+                except:
+                    questiondic[qkey]['Ans'][alab]={'Correct':'',
+                                                    'Item':''}
 
         ### HOTTEXT
 
@@ -1574,6 +1583,7 @@ def gather(zfile, questions):
         elif xname[:7].lower() == 'hottext':
             qtype = 'HT'
             qtitle = grab(content,' title="','"')
+            if type(qtitle) == list: qtitle = qtitle[0]
             qcont = grab(content,"<itemBody>","</itemBody>")
             qresp = grab(content,"<responseDeclaration","</responseDeclaration")
             qresp = grab(qresp,"<value>","</value>")
@@ -1639,6 +1649,7 @@ def gather(zfile, questions):
         elif xname[:5].lower() == 'match':
             qtype = 'MATCH'
             qtitle = grab(content,' title="','"')
+            if type(qtitle) == list: qtitle = qtitle[0]
             qcont = grab(content,"<itemBody>","</itemBody>")
             qend = qcont.find("<matchInter")
             qcont, qitems = qcont[:qend], qcont[qend:]
@@ -1708,6 +1719,7 @@ def gather(zfile, questions):
         elif xname[:5].lower() == 'essay':
             qtype = 'ESSAY'
             qtitle = grab(content,' title="','"')
+            if type(qtitle) == list: qtitle = qtitle[0]
             qcont = grab(content,"<itemBody>","</itemBody>")
             qcont = grab(qcont,'<p>','</p>')
             if type(qcont)==list:qcont = '\n'.join(qcont)
@@ -1740,6 +1752,7 @@ def gather(zfile, questions):
         elif xname[:5].lower() == 'drawi':
             qtype = 'DRAW'
             qtitle = grab(content,' title="','"')
+            if type(qtitle) == list: qtitle = qtitle[0]
             qcont = grab(content,"<itemBody>","</itemBody>")
             qcont = grab(qcont,'<p>','</p>')
             if type(qcont)==list:qcont = '\n'.join(qcont)

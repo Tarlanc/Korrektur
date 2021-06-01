@@ -699,13 +699,22 @@ class Anzeige(Frame):
                 points = self.data['Resp'][r][q]['Points'] ## Prevent 0 points from being stored
                 pass ## No automated correction for essays
 
-            self.data['Resp'][r][q]['Remarks']=rem
 
-            if type(points)==str:
-                pass
-            else: 
-                self.data['Resp'][r][q]['Points']=points
-                plist.append(points)
+            overwrite = False
+            if 'State' in self.data['Resp'][r][q].keys():
+                if self.data['Resp'][r][q]['State']==-1:
+                    overwrite = True ## Overwrite if automated correction
+            else:
+                overwrite = True ## Overwrite if no manual correction was done
+
+            if overwrite:
+                self.data['Resp'][r][q]['Remarks']=rem ## Only add remarks if no remarks are present
+                if type(points)==str:
+                    pass
+                else: 
+                    self.data['Resp'][r][q]['Points']=points
+                    plist.append(points)
+                    
 
         stat = desc_stat(plist)
 
@@ -1000,7 +1009,7 @@ class Anzeige(Frame):
             for ri in range(nr):
                 r = rt[ri]
                 item = self.data['Resp'][self.respondents[ri]][self.questions[qi]]
-                print(item)
+                #print(item)
                 try:
                     pscore = float(item['Points'])/self.data['Quest'][self.questions[qi]]['Max']
                 except:
@@ -2300,7 +2309,7 @@ def write_results(result = None, pdf=True, table="Punktetabelle.xls",questions=[
     outf.write('\t'.join(['Laufnummer','Name','Vorname','Benutzername','Matrikelnummer','Total','Remarks']+questions)+'\n')
     for r in respondents:
         info = result['Resp'][r]['Info']
-        line = [info['Laufnummer'],
+        line = [str(info['Laufnummer']),
                 info['Nachname'],
                 info['Vorname'],
                 info['Benutzername'],
@@ -2312,6 +2321,7 @@ def write_results(result = None, pdf=True, table="Punktetabelle.xls",questions=[
             if not result['Resp'][r][q]['Points'] == None:
                 line.append(str(result['Resp'][r][q]['Points']))
             else:
+                #print(result['Resp'][r][q])
                 line.append('')
             try:
                 punkte+=result['Resp'][r][q]['Points']
@@ -2326,6 +2336,7 @@ def write_results(result = None, pdf=True, table="Punktetabelle.xls",questions=[
                 line[6]='Achtung: Mindestens eine der Fragen ist noch nicht geprüft. '
         if punkte == '':
             line[6]+='Noch nicht alle Punkte vergeben'
+        #print(line)
         outf.write('\t'.join(line)+'\n')
     outf.close()
 
@@ -2333,13 +2344,16 @@ def write_results(result = None, pdf=True, table="Punktetabelle.xls",questions=[
         pdf = settings['PDF']
 
     if pdf:
-        inv = open('_inventory.txt','w',encoding="utf-8",errors="ignore")
-        inv.write('Laufnr.\tResp\tFile\n')
-        inv.close()
-        titel = simpledialog.askstring("Ausgabetitel","Welche Überschrift sollen die Dokumente für die Prüfungseinsicht tragen?\n\nWenn Sie dieses Textfeld leer lassen, werden keine PDFs erstellt.\n\n(z.B: 'Vorlesung: Statistik und Datenanalyse')")
-        if len(titel)>2:
-            for r in respondents:
-                create_einsicht(result,r,veranstaltung=titel,questions=questions)
+        try:
+            inv = open('_inventory.txt','w',encoding="utf-8",errors="ignore")
+            inv.write('Laufnr.\tResp\tFile\n')
+            inv.close()
+            titel = simpledialog.askstring("Ausgabetitel","Welche Überschrift sollen die Dokumente für die Prüfungseinsicht tragen?\n\nWenn Sie dieses Textfeld leer lassen, werden keine PDFs erstellt.\n\n(z.B: 'Vorlesung: Statistik und Datenanalyse')")
+            if len(titel)>2:
+                for r in respondents:
+                    create_einsicht(result,r,veranstaltung=titel,questions=questions)
+        except:
+            print("could not produce PDFs.")
 
     messagebox.showinfo("Export erfolgreich","Alle Daten wurden erfolgreich exportiert")
                     

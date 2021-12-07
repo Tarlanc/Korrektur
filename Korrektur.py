@@ -608,7 +608,7 @@ class Anzeige(Frame):
 
         self.data['Quest'][self.questions[settings['Curr_Q']]] = q
 
-        if q['Type'] in ['KPRIM','KPR','SCQ','MCQ','FIB','MATCH','HS']:
+        if q['Type'] in ['KPRIM','KPR','SCQ','MCQ','FIB','MATCH','HS','ESSAY']:
             result = self.mark_question(self.questions[settings['Curr_Q']]) ## Auto-Correct all the answers
             messagebox.showinfo('Result','Das Korrekturschema wurde angewandt, um alle Teilnehmer automatisch zu bewerten.\n'+result)
        
@@ -661,9 +661,11 @@ class Anzeige(Frame):
 
             elif quest['Type'] == 'FIB':
                 ac = True ## Only automatically mark if all is correct
+                ae = True ## Also automatically mark if all is empty
                 rem = '' ## Remove previous remarks. Otherwise, the remarks are stacked over each other.
 
                 for ans in quest['Ans'].keys():
+                    if not a[ans]=='':ae=False ## If any answer is given, all is not empty
                     if type(quest['Ans'][ans]['Correct']) in (str,int,float):
                         if not str(a[ans]) == str(quest['Ans'][ans]['Correct']):
                             ac = False
@@ -680,6 +682,8 @@ class Anzeige(Frame):
                         ac=False
                 if ac:
                     points = maxpoints
+                elif ae:
+                    points = 0
                 else:
                     points = self.data['Resp'][r][q]['Points'] ## Force input by corrector
 
@@ -693,7 +697,13 @@ class Anzeige(Frame):
                         points-=ded
                 if points<0:points=0
                 if not points==maxpoints: points=self.data['Resp'][r][q]['Points'] ## Prevent 0 points from being stored if something is wrong.
-                
+
+            elif quest['Type'] == 'ESSAY':
+                points = self.data['Resp'][r][q]['Points']
+                answer = ''
+                for ans in quest['Ans'].keys():
+                    answer+=a[ans]
+                if answer=='':points=0
 
             else: ## Essay question
                 points = self.data['Resp'][r][q]['Points'] ## Prevent 0 points from being stored
@@ -710,10 +720,13 @@ class Anzeige(Frame):
             if overwrite:
                 self.data['Resp'][r][q]['Remarks']=rem ## Only add remarks if no remarks are present
                 if type(points)==str:
+                    plist.append(None)
                     pass
                 else: 
                     self.data['Resp'][r][q]['Points']=points
                     plist.append(points)
+            else:
+                plist.append(points)
                     
 
         stat = desc_stat(plist)
@@ -773,6 +786,9 @@ class Anzeige(Frame):
             self.insec.set(0)
 
         #print(self.compare("1003715389",0,2))
+
+        self.pts.selection_range(0,END)
+        self.pts.focus()
 
         self.update()
 
@@ -1667,10 +1683,9 @@ def gather(zfile, questions):
             qresp = grab(qresp,'<value>','</value>')
             qitems = grab(qitems,"<simpleMatchSet","</simpleMatchSet")
             if type(qresp)==str:qresp=[qresp]
-##            print(qresp)
-##            print(qitems)
-##            print(len(qitems))
-
+##            print('QRESP', qresp)
+##            print('QITEMS',len(qitems),qitems)
+            
             scores = grab(content,'<outcomeDeclaration','</outcomeDeclaration>')
             mscore = ''
             for s in scores:
@@ -1679,18 +1694,19 @@ def gather(zfile, questions):
                         mscore = float(grab(s,'<value>','</value>'))
                     except:
                         pass
-            #print(mscore)
+##            print("Maxscore",mscore)
 
             items1 = grab(qitems[0],'<simpleAssociableChoice','</simpleAssociableChoice>')
             items2 = grab(qitems[1],'<simpleAssociableChoice','</simpleAssociableChoice>')
-##            print('1: ',items1)
-##            print('2: ',items2)
+##            print('1: ',items1) ## List of rows
+##            print('2: ',items2) ## List of columns
+
             rorder = []
             rdic = {}
             for qi in items2:
                 rid = grab(qi,'identifier="','"')
                 rc = grab(qi,'<p>','</p>')
-                #print(rid,rc)
+##                print(rid,rc)
                 if type(rc)==list:rc='\n'.join(rc)
                 rdic[rid]=rc
                 rorder.append(rid)
@@ -1699,6 +1715,7 @@ def gather(zfile, questions):
             for qi in items1:
                 rid = grab(qi,'identifier="','"')
                 rc = grab(qi,'<p>','</p>')
+##                print(rid,rc)
                 qcont+=f'\n - {rid}: {rc}'
 
             qkey = f"Question #{i+1} ({qtype}): {qtitle}"
@@ -1720,6 +1737,9 @@ def gather(zfile, questions):
                     c = ', '.join(sol)
                 questiondic[qkey]['Ans'][alab]={'Correct':c,
                                                 'Item':rdic[rorder[ai]]}
+
+##            print(questiondic[qkey]['Ans'])
+        
 
 
         ### ESSAY
@@ -2106,7 +2126,9 @@ def niceprint(a,q):
     valid = True
     anslist = []
     reqlist = []
+    itemlist = []
     for ans in sorted(a.keys()):
+        itemlist.append(ans)
         anslist.append(str(a[ans]))
         if not q['Ans'][ans]['Correct'] == None:
             reqlist.append(str(q['Ans'][ans]['Correct']))
@@ -2117,6 +2139,13 @@ def niceprint(a,q):
     elif q['Type'] in ['FIB']:
         answer = '\n'.join(anslist)
         required = '\n'.join(reqlist)
+    elif q['Type'] == 'MATCH':
+        answer=''
+        required = ''
+        for it,an,re in zip(itemlist,anslist,reqlist):
+            answer += it+': '+an+'\n'
+            required += it+': '+re+'\n'
+        
     else: ## Essay
         answer = '\n'.join(anslist)
         required = '\n'.join(reqlist)
@@ -2177,8 +2206,7 @@ def create_einsicht(res,r,folder='.\\',veranstaltung='',questions=[]): ## Takes 
                             "Pro Fehler bei einer Multiple Choice / KPRIM  Frage wurden 50% der",
                             "Maximalpunktzahl abgezogen. Single Choice können nur das maximum",
                             "oder 0 Punkte geben. Es gibt bei keiner Aufgabe weniger als 0 Punkte."
-                            "Bei Essay und offenen Fragen sind die Abzüge jeweils in den Kommentaren"
-                            "erläutert.\n"
+                            "Bei Essay und offenen Fragen sind die Abzüge jeweils in den Kommentaren erläutert.\n"
                             "Falls Sie mit einer Entscheidung nicht einverstanden sind, steht",
                             "Ihnen das Mittel eines Wiedererwägungsgesuchs zur Verfügung. Stellen",
                             "Sie ein solches Gesuch zu Handen Ihres Dozenten und beschreiben Sie",
@@ -2206,7 +2234,7 @@ def create_einsicht(res,r,folder='.\\',veranstaltung='',questions=[]): ## Takes 
     rinf = res['Resp'][r]['Info']
     rname = "{0}, {1} ({2})".format(rinf['Nachname'],rinf['Vorname'],rinf['Matrikelnummer'])
 
-    fname = folder + 'Resultate_'+ r + '.pdf'
+    fname = f"{folder}Resultate_{r}.pdf"
     pdf = FPDF(orientation='P', unit='mm', format='A4')
     pdf.add_page()
     pdf.set_font("Arial", size=16)
@@ -2287,17 +2315,16 @@ def create_einsicht(res,r,folder='.\\',veranstaltung='',questions=[]): ## Takes 
         pdf.multi_cell(0,6, txt="Sie haben {0:.1f} von {1:.1f} Punkten erhalten.".format(res['Resp'][r][q]['Points'],res['Quest'][q]['Max']))
 
     inv = open(folder+'_inventory.txt','a',encoding="utf-8",errors="ignore")
-    rnr = r.split(' ')[0]
     
     try:
         pdf.output(fname)
-        inv.write(r+'\t'+rname+'\t'+fname+'\n')
+        inv.write(f"{r}\t{rname}\t{fname}\n")
         inv.close()
     except Exception as f:
         er = open(fname+"_ERROR.txt","w",encoding="utf-8",errors="ignore")
         er.write("Error. Could not export case:"+r+"\nThere must be a strange special character in this respondent's answers. Please mend manually.\n")
         er.close()
-        inv.write(r+'\t'+rname+'\t'+str(f)+'\n')
+        inv.write(f"{r}\t{rname}\t{f}\n")
         inv.close()
 
 
@@ -2352,8 +2379,8 @@ def write_results(result = None, pdf=True, table="Punktetabelle.xls",questions=[
             if len(titel)>2:
                 for r in respondents:
                     create_einsicht(result,r,veranstaltung=titel,questions=questions)
-        except:
-            print("could not produce PDFs.")
+        except Exception as f:
+            print("could not produce PDFs.",f)
 
     messagebox.showinfo("Export erfolgreich","Alle Daten wurden erfolgreich exportiert")
                     
